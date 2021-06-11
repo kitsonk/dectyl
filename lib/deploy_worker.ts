@@ -411,6 +411,26 @@ export class DeployWorker {
     return Promise.resolve();
   }
 
+  /** Start server and execute the callback.  Once the callback finishes, the
+   * worker will be closed.  Run resolves or rejects with the value returned
+   * from the callback.  The callback will be called with the context of the
+   * worker.
+   *
+   * This is useful when you need to run a set of assertions against the worker
+   * where the assertions might throw, but want to ensure the worker gets closed
+   * irrespective of if the callback throws or not.
+   */
+  async run<T>(callback: (this: this) => T | Promise<T>): Promise<T> {
+    await this.start();
+    let result: T;
+    try {
+      result = await callback.call(this);
+    } finally {
+      await this.close();
+    }
+    return result;
+  }
+
   /** Start the program, allowing it to take requests. */
   async start(): Promise<void> {
     await this.#ready.promise;
