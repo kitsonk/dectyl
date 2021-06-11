@@ -407,8 +407,59 @@ export class DeployWorker {
     });
   }
 
-  listen(_options: ListenOptions): Promise<void> {
-    return Promise.resolve();
+  /** Start listening for requests, passing them to the worker and sending
+   * the responses back to the client.
+   *
+   * Example:
+   *
+   * ```ts
+   * const helloWorld = await createWorker("./helloWorld.ts");
+   * await helloWorld.listen({ port: 8000 });
+   * ```
+   */
+  async listen(options: ListenOptions): Promise<void> {
+    await this.start();
+
+    // deno-lint-ignore no-this-alias
+    const worker = this;
+    const listener = isTlsOptions(options)
+      ? Deno.listenTls(options)
+      : Deno.listen(options);
+
+    async function serve(conn: Deno.Conn) {
+      const httpConn = Deno.serveHttp(conn);
+      while (true) {
+        try {
+          const requestEvent = await httpConn.nextRequest();
+          if (requestEvent === null) {
+            return;
+          }
+          const [response] = await worker.fetch(requestEvent.request);
+          await requestEvent.respondWith(response);
+        } catch (err) {
+          logger.error(err);
+        }
+        if (worker.state !== "running") {
+          return;
+        }
+      }
+    }
+
+    async function accept() {
+      while (true) {
+        try {
+          const conn = await listener.accept();
+          serve(conn);
+        } catch (err) {
+          logger.error(err);
+        }
+        if (worker.state !== "running") {
+          return;
+        }
+      }
+    }
+
+    accept();
   }
 
   /** Start server and execute the callback.  Once the callback finishes, the
@@ -516,4 +567,8 @@ function parseHeaders(
     return result.length ? result : undefined;
   }
   return headers as ([string, string][] | Record<string, string> | undefined);
+}
+
+function isTlsOptions(value: ListenOptions): value is Deno.ListenTlsOptions {
+  return "certFile" in value && "keyFile" in value;
 }
