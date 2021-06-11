@@ -255,7 +255,21 @@ export class DeployWorker {
     });
   }
 
-  /** A readable stream the yields up log messages from the program. */
+  /** A readable stream the yields up log messages from the program.
+   *
+   * Example:
+   *
+   * ```ts
+   * const helloWorld = await createWorker("./helloWorld.ts");
+   * // Use an async IIFE to avoid blocking the main loop
+   * (async () => {
+   *   for await (const msg of helloWorld.logs) {
+   *     console.log(`[${helloWorld.name}] ${msg}`);
+   *   }
+   * })();
+   * await helloWorld.listen({ port: 8000 });
+   * ```
+   */
   get logs(): ReadableStream<string> {
     return this.#logs;
   }
@@ -302,10 +316,10 @@ export class DeployWorker {
    *
    * ```ts
    * const helloWorld = await createWorker("./hello_world.ts");
-   * await helloWorld.start();
-   * const [response, info] = await helloWorld.fetch("/");
-   * // make assertions about the response
-   * helloWorld.close();
+   * await helloWorld.run(async () => {
+   *   const [response, info] = await helloWorld.fetch("/");
+   *   // make assertions against the response
+   * });
    * ```
    */
   fetch(
@@ -400,6 +414,7 @@ export class DeployWorker {
     return deferred.promise;
   }
 
+  /** Diagnostic information about the current worker. */
   info(): Promise<DeployWorkerInfo> {
     return Promise.resolve({
       fetchCount: this.#fetchId,
@@ -470,6 +485,16 @@ export class DeployWorker {
    * This is useful when you need to run a set of assertions against the worker
    * where the assertions might throw, but want to ensure the worker gets closed
    * irrespective of if the callback throws or not.
+   *
+   * Example:
+   *
+   * ```ts
+   * const helloWorld = await createWorker("./helloWorld.ts");
+   * await helloWorld.run(async function () {
+   *   const [response, info] = await this.fetch("/");
+   *   // make assertions against the response
+   * });
+   * ```
    */
   async run<T>(callback: (this: this) => T | Promise<T>): Promise<T> {
     await this.start();
