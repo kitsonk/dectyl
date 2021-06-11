@@ -115,86 +115,72 @@ export class DectylConsole implements Console {
 
   log(...args: unknown[]) {
     this.#print(
-      `${
-        this.#inspectArgs(args, {
-          ...INSPECT_OPTIONS,
-          indentLevel: this.#indentLevel,
-        })
-      }\n`,
+      this.#inspectArgs(args, {
+        ...INSPECT_OPTIONS,
+        indentLevel: this.#indentLevel,
+      }),
       false,
     );
   }
 
   debug(...args: unknown[]) {
     this.#print(
-      `${
-        this.#inspectArgs(args, {
-          ...INSPECT_OPTIONS,
-          indentLevel: this.#indentLevel,
-        })
-      }\n`,
+      this.#inspectArgs(args, {
+        ...INSPECT_OPTIONS,
+        indentLevel: this.#indentLevel,
+      }),
       false,
     );
   }
 
   info(...args: unknown[]) {
     this.#print(
-      `${
-        this.#inspectArgs(args, {
-          ...INSPECT_OPTIONS,
-          indentLevel: this.#indentLevel,
-        })
-      }\n`,
+      this.#inspectArgs(args, {
+        ...INSPECT_OPTIONS,
+        indentLevel: this.#indentLevel,
+      }),
       false,
     );
   }
 
   dir(obj: unknown, options: Record<string, unknown>) {
     this.#print(
-      `${
-        this.#inspectArgs([obj], {
-          ...INSPECT_OPTIONS,
-          indentLevel: this.#indentLevel,
-          ...options,
-        })
-      }\n`,
+      this.#inspectArgs([obj], {
+        ...INSPECT_OPTIONS,
+        indentLevel: this.#indentLevel,
+        ...options,
+      }),
       false,
     );
   }
 
   dirxml(obj: unknown, options: Record<string, unknown>) {
     this.#print(
-      `${
-        this.#inspectArgs([obj], {
-          ...INSPECT_OPTIONS,
-          indentLevel: this.#indentLevel,
-          ...options,
-        })
-      }\n`,
+      this.#inspectArgs([obj], {
+        ...INSPECT_OPTIONS,
+        indentLevel: this.#indentLevel,
+        ...options,
+      }),
       false,
     );
   }
 
   warn(...args: unknown[]) {
     this.#print(
-      `${
-        this.#inspectArgs(args, {
-          ...INSPECT_OPTIONS,
-          indentLevel: this.#indentLevel,
-        })
-      }\n`,
+      this.#inspectArgs(args, {
+        ...INSPECT_OPTIONS,
+        indentLevel: this.#indentLevel,
+      }),
       true,
     );
   }
 
   error(...args: unknown[]) {
     this.#print(
-      `${
-        this.#inspectArgs(args, {
-          ...INSPECT_OPTIONS,
-          indentLevel: this.#indentLevel,
-        })
-      }\n`,
+      this.#inspectArgs(args, {
+        ...INSPECT_OPTIONS,
+        indentLevel: this.#indentLevel,
+      }),
       true,
     );
   }

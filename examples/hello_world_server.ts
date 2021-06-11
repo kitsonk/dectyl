@@ -9,9 +9,6 @@ const helloWorld = await createWorker(
 
 (async () => {
   for await (let log of helloWorld.logs) {
-    if (log.endsWith("\n")) {
-      log = log.slice(0, -1);
-    }
     console.log(`[${helloWorld.name}]: ${log}`);
   }
 })();
