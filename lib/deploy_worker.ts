@@ -340,8 +340,9 @@ export class DeployWorker {
     }
     logger.debug("fetch()", this.#name, init.url);
     if (requestInit && inputRequest) {
+      let headers: [string, string][] | undefined;
       if (requestInit.body != null) {
-        [init.body, bodyStream] = parseBodyInit(
+        [init.body, bodyStream, headers] = parseBodyInit(
           inputRequest ?? init.url,
           requestInit,
         );
@@ -351,7 +352,8 @@ export class DeployWorker {
           type: "stream",
         };
       }
-      init.headers = parseHeaders(requestInit.headers ?? inputRequest.headers);
+      init.headers = headers ??
+        parseHeaders(requestInit.headers ?? inputRequest.headers);
       init.signal = this.#watchSignal(
         requestInit.signal ?? inputRequest.signal,
       );
@@ -360,13 +362,14 @@ export class DeployWorker {
         init[key] = requestInit[key] ?? inputRequest[key] as any;
       }
     } else if (requestInit) {
+      let headers: [string, string][] | undefined;
       if (requestInit.body != null) {
-        [init.body, bodyStream] = parseBodyInit(
+        [init.body, bodyStream, headers] = parseBodyInit(
           inputRequest ?? init.url,
           requestInit,
         );
       }
-      init.headers = parseHeaders(requestInit.headers);
+      init.headers = headers ?? parseHeaders(requestInit.headers);
       init.signal = this.#watchSignal(requestInit.signal);
       for (const key of INIT_PROPS) {
         // deno-lint-ignore no-explicit-any
@@ -459,21 +462,30 @@ function createName(): string {
 function parseBodyInit(
   input: string | Request,
   requestInit: RequestInit,
-): [FetchMessageBody, ReadableStream<Uint8Array> | undefined] {
+): [
+  FetchMessageBody,
+  ReadableStream<Uint8Array> | undefined,
+  [string, string][] | undefined,
+] {
   assert(requestInit.body);
   if (requestInit.body instanceof ReadableStream) {
-    return [{ type: "stream" }, requestInit.body];
+    return [{ type: "stream" }, requestInit.body, undefined];
   }
   if (requestInit.body instanceof URLSearchParams) {
     const value = [...requestInit.body];
-    return [{ type: "urlsearchparams", value }, undefined];
+    return [{ type: "urlsearchparams", value }, undefined, undefined];
   }
   if (requestInit.body instanceof FormData) {
     const request = new Request(input, requestInit);
     assert(request.body);
-    return [{ type: "stream" }, request.body];
+    const headers = [...request.headers];
+    return [
+      { type: "stream" },
+      request.body,
+      headers.length ? headers : undefined,
+    ];
   }
-  return [{ type: "cloned", value: requestInit.body }, undefined];
+  return [{ type: "cloned", value: requestInit.body }, undefined, undefined];
 }
 
 function parseHeaders(
