@@ -4,6 +4,7 @@
 /// <reference lib="deno.worker" />
 
 import { DectylConsole } from "./console.ts";
+import { assert, customInspect, inspect } from "./inspect.ts";
 import type { DectylMessage, FetchMessageRequestInit } from "../types.d.ts";
 
 import "https://raw.githubusercontent.com/kitsonk/deno_local_file_fetch/main/polyfill.ts";
@@ -20,14 +21,6 @@ const INIT_PROPS = [
   "referrer",
   "referrerPolicy",
 ] as const;
-
-const inspect = globalThis.Deno.inspect.bind(Deno);
-
-function assert(cond: unknown, msg = "Assertion failed"): asserts cond {
-  if (!cond) {
-    throw new Error(msg);
-  }
-}
 
 enum LogLevel {
   Debug = 0,
@@ -77,8 +70,47 @@ Object.assign(globalThis, {
   FetchEvent,
 });
 
-class DeployContext extends EventTarget {
-  //
+class DeployDenoNs {
+  #env = new Map([["DENO_DEPLOYMENT_ID", "00000000"]]);
+
+  create(): typeof Deno {
+    const build = {
+      target: "x86_64-unknown-linux-gnu",
+      arch: "x86_64",
+      os: "linux",
+      vendor: "unknown",
+      env: "gnu",
+    };
+
+    const env = {
+      get: (key: string): string | undefined => {
+        return this.#env.get(key);
+      },
+      set: (_key: string, _value: string) => {
+        throw new TypeError("Can not modify env vars during execution.");
+      },
+      delete: (_key: string): boolean => {
+        throw new TypeError("Can not modify env vars during execution.");
+      },
+      toObject: (): Record<string, string> => {
+        return Object.fromEntries(this.#env);
+      },
+    };
+
+    return Object.create({}, {
+      "build": createReadOnly(build),
+      "customInspect": createReadOnly(customInspect),
+      "env": createReadOnly(env),
+      "inspect": createReadOnly(inspect),
+      "noColor": createValueDesc(true),
+    });
+  }
+
+  setEnv(obj: Record<string, string>) {
+    for (const [key, value] of Object.entries(obj)) {
+      this.#env.set(key, value);
+    }
+  }
 }
 
 class DeployWorkerHost {
@@ -86,11 +118,12 @@ class DeployWorkerHost {
     number,
     ReadableStreamDefaultController<Uint8Array>
   >();
-  #context: DeployContext;
   #postMessage: (message: DectylMessage) => void = globalThis.postMessage.bind(
     globalThis,
   );
+  #denoNs: DeployDenoNs;
   #signalControllers = new Map<number, AbortController>();
+  #target: EventTarget;
 
   async #handleMessage(evt: MessageEvent<DectylMessage>) {
     const { data } = evt;
@@ -128,6 +161,9 @@ class DeployWorkerHost {
         break;
       }
       case "init":
+        if (data.options.env) {
+          this.#denoNs.setEnv(data.options.env);
+        }
         this.#postMessage({ type: "ready" });
         break;
       case "import":
@@ -137,7 +173,7 @@ class DeployWorkerHost {
       case "fetch": {
         const { id, init } = data;
         const [input, requestInit] = this.#parseInit(id, init);
-        this.#context.dispatchEvent(
+        this.#target.dispatchEvent(
           new FetchEvent(
             new Request(input, requestInit),
             (response) => this.#postResponse(id, response),
@@ -238,23 +274,25 @@ class DeployWorkerHost {
   }
 
   constructor() {
-    addEventListener("message", (evt) => {
+    addEventListener("message", (evt: MessageEvent) => {
       this.#handleMessage(evt);
     });
 
     const console = new DectylConsole(this.#print.bind(this));
+    const target = this.#target = new EventTarget();
+    const denoNs = this.#denoNs = new DeployDenoNs();
 
-    const context = this.#context = new DeployContext();
     Object.defineProperties(globalThis, {
       "addEventListener": createValueDesc(
-        context.addEventListener.bind(context),
+        target.addEventListener.bind(target),
       ),
       "console": createNonEnumDesc(console),
+      "Deno": createReadOnly(denoNs.create()),
       "dispatchEvent": createValueDesc(
-        context.dispatchEvent.bind(context),
+        target.dispatchEvent.bind(target),
       ),
       "removeEventListener": createValueDesc(
-        context.removeEventListener.bind(context),
+        target.removeEventListener.bind(target),
       ),
     });
   }
@@ -268,6 +306,15 @@ function createNonEnumDesc(value: unknown): PropertyDescriptor {
     writable: true,
     enumerable: false,
     configurable: true,
+  };
+}
+
+function createReadOnly(value: unknown): PropertyDescriptor {
+  return {
+    value,
+    writable: false,
+    enumerable: true,
+    configurable: false,
   };
 }
 

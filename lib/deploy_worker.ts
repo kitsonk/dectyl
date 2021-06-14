@@ -1,5 +1,7 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
+/// <reference lib="deno.unstable" />
+
 import { assert } from "../deps.ts";
 import * as logger from "./logger.ts";
 import type {
@@ -18,7 +20,7 @@ import {
 } from "./util.ts";
 
 const BUNDLE_SPECIFIER = "deno:///bundle.js";
-const RUNTIME_SCRIPT = "../runtime/main.bundle.js";
+const RUNTIME_SCRIPT = "../runtime/main.ts";
 const INIT_PROPS = [
   "cache",
   "credentials",
@@ -243,11 +245,7 @@ export class DeployWorker {
       .toString();
     this.#name = name;
     this.#watch = watch;
-    this.#worker = new Worker(script, {
-      name,
-      type: "module",
-      deno: { namespace: true },
-    });
+    this.#worker = new Worker(script, { name, type: "module" });
     this.#worker.addEventListener("message", (evt) => this.#handleMessage(evt));
     this.#worker.postMessage({
       type: "init",

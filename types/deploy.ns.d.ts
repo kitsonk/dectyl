@@ -1,3 +1,5 @@
+// Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
+
 export {};
 
 declare global {
@@ -9,7 +11,11 @@ declare global {
   namespace Deno {
     export const env: {
       get(key: string): string | undefined;
+      /** Deploy does not support setting of environment variables during a
+       * session currently. Calling this method will throw a type error. */
       set(key: string, value: string): void;
+      /** Deploy does not support deleting of environment variables during a
+       * session currently. Calling this method will throw a type error. */
       delete(key: string): void;
       toObject(): Record<string, string>;
     };
@@ -21,6 +27,8 @@ declare global {
       vendor: string;
       env?: string;
     };
+
+    export const customInspect: unique symbol;
 
     export const noColor: true;
 

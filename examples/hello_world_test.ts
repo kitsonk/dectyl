@@ -33,7 +33,7 @@ Deno.test({
 
     await helloWorld.run(async function () {
       await this.fetch("/");
-      assertEquals(logs, ["fetch\n", "https://localhost/\n"]);
+      assertEquals(logs, ["fetch", "https://localhost/"]);
     });
   },
 });
