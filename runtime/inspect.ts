@@ -1,5 +1,11 @@
 // Copyright 2021 the Deno authors. All rights reserved. MIT license.
 
+interface ColorCode {
+  open: string;
+  close: string;
+  regexp: RegExp;
+}
+
 export interface InspectOptions extends Deno.InspectOptions {
   indentLevel?: number;
 }
@@ -30,18 +36,49 @@ type TypedArray =
 
 export const customInspect = Symbol.for("Deno.customInspect");
 
+// https://github.com/chalk/ansi-regex/blob/2b56fb0c7a07108e5b54241e8faec160d393aedb/index.js
+const ANSI_PATTERN = new RegExp(
+  [
+    "[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)",
+    "(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))",
+  ].join("|"),
+  "g",
+);
+
+function code(open: number, close: number): ColorCode {
+  return {
+    open: `\x1b[${open}m`,
+    close: `\x1b[${close}m`,
+    regexp: new RegExp(`\\x1b\\[${close}m`, "g"),
+  };
+}
+
+function run(str: string, code: ColorCode) {
+  return `${code.open}${str.replace(code.regexp, code.open)}${code.close}`;
+}
+
+const codes = {
+  bold: code(1, 22),
+  cyan: code(36, 39),
+  dim: code(2, 22),
+  green: code(32, 39),
+  magenta: code(35, 39),
+  red: code(31, 39),
+  yellow: code(33, 39),
+};
+
 const colors = {
   stripColor(str: string) {
-    return str;
+    return str.replace(ANSI_PATTERN, "");
   },
 
-  bold: (s: string) => s,
-  cyan: (s: string) => s,
-  dim: (s: string) => s,
-  green: (s: string) => s,
-  magenta: (s: string) => s,
-  red: (s: string) => s,
-  yellow: (s: string) => s,
+  bold: (s: string) => run(s, codes.bold),
+  cyan: (s: string) => run(s, codes.cyan),
+  dim: (s: string) => run(s, codes.dim),
+  green: (s: string) => run(s, codes.green),
+  magenta: (s: string) => run(s, codes.magenta),
+  red: (s: string) => run(s, codes.red),
+  yellow: (s: string) => run(s, codes.yellow),
 };
 
 export function assert(cond: unknown, msg = "Assertion failed"): asserts cond {

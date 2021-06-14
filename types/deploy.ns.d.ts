@@ -30,7 +30,7 @@ declare global {
 
     export const customInspect: unique symbol;
 
-    export const noColor: true;
+    export const noColor: false;
 
     export interface InspectOptions {
       colors?: boolean;

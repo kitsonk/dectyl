@@ -1,21 +1,44 @@
 const customInspect = Symbol.for("Deno.customInspect");
+const ANSI_PATTERN = new RegExp([
+    "[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)",
+    "(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))", 
+].join("|"), "g");
+function code(open, close) {
+    return {
+        open: `\x1b[${open}m`,
+        close: `\x1b[${close}m`,
+        regexp: new RegExp(`\\x1b\\[${close}m`, "g")
+    };
+}
+function run(str, code1) {
+    return `${code1.open}${str.replace(code1.regexp, code1.open)}${code1.close}`;
+}
+const codes = {
+    bold: code(1, 22),
+    cyan: code(36, 39),
+    dim: code(2, 22),
+    green: code(32, 39),
+    magenta: code(35, 39),
+    red: code(31, 39),
+    yellow: code(33, 39)
+};
 const colors = {
     stripColor (str) {
-        return str;
+        return str.replace(ANSI_PATTERN, "");
     },
-    bold: (s)=>s
+    bold: (s)=>run(s, codes.bold)
     ,
-    cyan: (s)=>s
+    cyan: (s)=>run(s, codes.cyan)
     ,
-    dim: (s)=>s
+    dim: (s)=>run(s, codes.dim)
     ,
-    green: (s)=>s
+    green: (s)=>run(s, codes.green)
     ,
-    magenta: (s)=>s
+    magenta: (s)=>run(s, codes.magenta)
     ,
-    red: (s)=>s
+    red: (s)=>run(s, codes.red)
     ,
-    yellow: (s)=>s
+    yellow: (s)=>run(s, codes.yellow)
 };
 function assert(cond, msg = "Assertion failed") {
     if (!cond) {
@@ -1648,26 +1671,26 @@ function assertPath(path) {
         throw new TypeError(`Path must be a string. Received ${JSON.stringify(path)}`);
     }
 }
-function isPosixPathSeparator(code) {
-    return code === 47;
+function isPosixPathSeparator(code1) {
+    return code1 === 47;
 }
-function isPathSeparator(code) {
-    return isPosixPathSeparator(code) || code === 92;
+function isPathSeparator(code1) {
+    return isPosixPathSeparator(code1) || code1 === 92;
 }
-function isWindowsDeviceRoot(code) {
-    return code >= 97 && code <= 122 || code >= 65 && code <= 90;
+function isWindowsDeviceRoot(code1) {
+    return code1 >= 97 && code1 <= 122 || code1 >= 65 && code1 <= 90;
 }
 function normalizeString(path, allowAboveRoot, separator, isPathSeparator1) {
     let res = "";
     let lastSegmentLength = 0;
     let lastSlash = -1;
     let dots = 0;
-    let code;
+    let code1;
     for(let i = 0, len = path.length; i <= len; ++i){
-        if (i < len) code = path.charCodeAt(i);
-        else if (isPathSeparator1(code)) break;
-        else code = CHAR_FORWARD_SLASH;
-        if (isPathSeparator1(code)) {
+        if (i < len) code1 = path.charCodeAt(i);
+        else if (isPathSeparator1(code1)) break;
+        else code1 = CHAR_FORWARD_SLASH;
+        if (isPathSeparator1(code1)) {
             if (lastSlash === i - 1 || dots === 1) {
             } else if (lastSlash !== i - 1 && dots === 2) {
                 if (res.length < 2 || lastSegmentLength !== 2 || res.charCodeAt(res.length - 1) !== 46 || res.charCodeAt(res.length - 2) !== 46) {
@@ -1703,7 +1726,7 @@ function normalizeString(path, allowAboveRoot, separator, isPathSeparator1) {
             }
             lastSlash = i;
             dots = 0;
-        } else if (code === 46 && dots !== -1) {
+        } else if (code1 === 46 && dots !== -1) {
             ++dots;
         } else {
             dots = -1;
@@ -1770,9 +1793,9 @@ function resolve(...pathSegments) {
         let rootEnd = 0;
         let device = "";
         let isAbsolute = false;
-        const code = path.charCodeAt(0);
+        const code1 = path.charCodeAt(0);
         if (len > 1) {
-            if (isPathSeparator(code)) {
+            if (isPathSeparator(code1)) {
                 isAbsolute = true;
                 if (isPathSeparator(path.charCodeAt(1))) {
                     let j = 2;
@@ -1803,7 +1826,7 @@ function resolve(...pathSegments) {
                 } else {
                     rootEnd = 1;
                 }
-            } else if (isWindowsDeviceRoot(code)) {
+            } else if (isWindowsDeviceRoot(code1)) {
                 if (path.charCodeAt(1) === 58) {
                     device = path.slice(0, 2);
                     rootEnd = 2;
@@ -1815,7 +1838,7 @@ function resolve(...pathSegments) {
                     }
                 }
             }
-        } else if (isPathSeparator(code)) {
+        } else if (isPathSeparator(code1)) {
             rootEnd = 1;
             isAbsolute = true;
         }
@@ -1841,9 +1864,9 @@ function normalize(path) {
     let rootEnd = 0;
     let device;
     let isAbsolute = false;
-    const code = path.charCodeAt(0);
+    const code1 = path.charCodeAt(0);
     if (len > 1) {
-        if (isPathSeparator(code)) {
+        if (isPathSeparator(code1)) {
             isAbsolute = true;
             if (isPathSeparator(path.charCodeAt(1))) {
                 let j = 2;
@@ -1873,7 +1896,7 @@ function normalize(path) {
             } else {
                 rootEnd = 1;
             }
-        } else if (isWindowsDeviceRoot(code)) {
+        } else if (isWindowsDeviceRoot(code1)) {
             if (path.charCodeAt(1) === 58) {
                 device = path.slice(0, 2);
                 rootEnd = 2;
@@ -1885,7 +1908,7 @@ function normalize(path) {
                 }
             }
         }
-    } else if (isPathSeparator(code)) {
+    } else if (isPathSeparator(code1)) {
         return "\\";
     }
     let tail;
@@ -1920,10 +1943,10 @@ function isAbsolute(path) {
     assertPath(path);
     const len = path.length;
     if (len === 0) return false;
-    const code = path.charCodeAt(0);
-    if (isPathSeparator(code)) {
+    const code1 = path.charCodeAt(0);
+    if (isPathSeparator(code1)) {
         return true;
-    } else if (isWindowsDeviceRoot(code)) {
+    } else if (isWindowsDeviceRoot(code1)) {
         if (len > 2 && path.charCodeAt(1) === 58) {
             if (isPathSeparator(path.charCodeAt(2))) return true;
         }
@@ -2050,8 +2073,8 @@ function toNamespacedPath(path) {
     if (resolvedPath.length >= 3) {
         if (resolvedPath.charCodeAt(0) === 92) {
             if (resolvedPath.charCodeAt(1) === 92) {
-                const code = resolvedPath.charCodeAt(2);
-                if (code !== 63 && code !== 46) {
+                const code1 = resolvedPath.charCodeAt(2);
+                if (code1 !== 63 && code1 !== 46) {
                     return `\\\\?\\UNC\\${resolvedPath.slice(2)}`;
                 }
             }
@@ -2071,9 +2094,9 @@ function dirname(path) {
     let end = -1;
     let matchedSlash = true;
     let offset = 0;
-    const code = path.charCodeAt(0);
+    const code1 = path.charCodeAt(0);
     if (len > 1) {
-        if (isPathSeparator(code)) {
+        if (isPathSeparator(code1)) {
             rootEnd = offset = 1;
             if (isPathSeparator(path.charCodeAt(1))) {
                 let j = 2;
@@ -2100,7 +2123,7 @@ function dirname(path) {
                     }
                 }
             }
-        } else if (isWindowsDeviceRoot(code)) {
+        } else if (isWindowsDeviceRoot(code1)) {
             if (path.charCodeAt(1) === 58) {
                 rootEnd = offset = 2;
                 if (len > 2) {
@@ -2108,7 +2131,7 @@ function dirname(path) {
                 }
             }
         }
-    } else if (isPathSeparator(code)) {
+    } else if (isPathSeparator(code1)) {
         return path;
     }
     for(let i = len - 1; i >= offset; --i){
@@ -2147,8 +2170,8 @@ function basename(path, ext = "") {
         let extIdx = ext.length - 1;
         let firstNonSlashEnd = -1;
         for(i = path.length - 1; i >= start; --i){
-            const code = path.charCodeAt(i);
-            if (isPathSeparator(code)) {
+            const code1 = path.charCodeAt(i);
+            if (isPathSeparator(code1)) {
                 if (!matchedSlash) {
                     start = i + 1;
                     break;
@@ -2159,7 +2182,7 @@ function basename(path, ext = "") {
                     firstNonSlashEnd = i + 1;
                 }
                 if (extIdx >= 0) {
-                    if (code === ext.charCodeAt(extIdx)) {
+                    if (code1 === ext.charCodeAt(extIdx)) {
                         if ((--extIdx) === -1) {
                             end = i;
                         }
@@ -2201,8 +2224,8 @@ function extname(path) {
         start = startPart = 2;
     }
     for(let i = path.length - 1; i >= start; --i){
-        const code = path.charCodeAt(i);
-        if (isPathSeparator(code)) {
+        const code1 = path.charCodeAt(i);
+        if (isPathSeparator(code1)) {
             if (!matchedSlash) {
                 startPart = i + 1;
                 break;
@@ -2213,7 +2236,7 @@ function extname(path) {
             matchedSlash = false;
             end = i + 1;
         }
-        if (code === 46) {
+        if (code1 === 46) {
             if (startDot === -1) startDot = i;
             else if (preDotState !== 1) preDotState = 1;
         } else if (startDot !== -1) {
@@ -2243,9 +2266,9 @@ function parse(path) {
     const len = path.length;
     if (len === 0) return ret;
     let rootEnd = 0;
-    let code = path.charCodeAt(0);
+    let code1 = path.charCodeAt(0);
     if (len > 1) {
-        if (isPathSeparator(code)) {
+        if (isPathSeparator(code1)) {
             rootEnd = 1;
             if (isPathSeparator(path.charCodeAt(1))) {
                 let j = 2;
@@ -2271,7 +2294,7 @@ function parse(path) {
                     }
                 }
             }
-        } else if (isWindowsDeviceRoot(code)) {
+        } else if (isWindowsDeviceRoot(code1)) {
             if (path.charCodeAt(1) === 58) {
                 rootEnd = 2;
                 if (len > 2) {
@@ -2288,7 +2311,7 @@ function parse(path) {
                 }
             }
         }
-    } else if (isPathSeparator(code)) {
+    } else if (isPathSeparator(code1)) {
         ret.root = ret.dir = path;
         return ret;
     }
@@ -2300,8 +2323,8 @@ function parse(path) {
     let i = path.length - 1;
     let preDotState = 0;
     for(; i >= rootEnd; --i){
-        code = path.charCodeAt(i);
-        if (isPathSeparator(code)) {
+        code1 = path.charCodeAt(i);
+        if (isPathSeparator(code1)) {
             if (!matchedSlash) {
                 startPart = i + 1;
                 break;
@@ -2312,7 +2335,7 @@ function parse(path) {
             matchedSlash = false;
             end = i + 1;
         }
-        if (code === 46) {
+        if (code1 === 46) {
             if (startDot === -1) startDot = i;
             else if (preDotState !== 1) preDotState = 1;
         } else if (startDot !== -1) {
@@ -2530,8 +2553,8 @@ function basename1(path, ext = "") {
         let extIdx = ext.length - 1;
         let firstNonSlashEnd = -1;
         for(i = path.length - 1; i >= 0; --i){
-            const code = path.charCodeAt(i);
-            if (code === 47) {
+            const code1 = path.charCodeAt(i);
+            if (code1 === 47) {
                 if (!matchedSlash) {
                     start = i + 1;
                     break;
@@ -2542,7 +2565,7 @@ function basename1(path, ext = "") {
                     firstNonSlashEnd = i + 1;
                 }
                 if (extIdx >= 0) {
-                    if (code === ext.charCodeAt(extIdx)) {
+                    if (code1 === ext.charCodeAt(extIdx)) {
                         if ((--extIdx) === -1) {
                             end = i;
                         }
@@ -2580,8 +2603,8 @@ function extname1(path) {
     let matchedSlash = true;
     let preDotState = 0;
     for(let i = path.length - 1; i >= 0; --i){
-        const code = path.charCodeAt(i);
-        if (code === 47) {
+        const code1 = path.charCodeAt(i);
+        if (code1 === 47) {
             if (!matchedSlash) {
                 startPart = i + 1;
                 break;
@@ -2592,7 +2615,7 @@ function extname1(path) {
             matchedSlash = false;
             end = i + 1;
         }
-        if (code === 46) {
+        if (code1 === 46) {
             if (startDot === -1) startDot = i;
             else if (preDotState !== 1) preDotState = 1;
         } else if (startDot !== -1) {
@@ -2635,8 +2658,8 @@ function parse1(path) {
     let i = path.length - 1;
     let preDotState = 0;
     for(; i >= start; --i){
-        const code = path.charCodeAt(i);
-        if (code === 47) {
+        const code1 = path.charCodeAt(i);
+        if (code1 === 47) {
             if (!matchedSlash) {
                 startPart = i + 1;
                 break;
@@ -2647,7 +2670,7 @@ function parse1(path) {
             matchedSlash = false;
             end = i + 1;
         }
-        if (code === 46) {
+        if (code1 === 46) {
             if (startDot === -1) startDot = i;
             else if (preDotState !== 1) preDotState = 1;
         } else if (startDot !== -1) {
@@ -2900,7 +2923,7 @@ class Buffer {
         }
     }
 }
-const ANSI_PATTERN = new RegExp([
+const ANSI_PATTERN1 = new RegExp([
     "[\\u001B\\u009B][[\\]()#;?]*(?:(?:(?:[a-zA-Z\\d]*(?:;[-a-zA-Z\\d\\/#&.:=?%@~_]*)*)?\\u0007)",
     "(?:(?:\\d{1,4}(?:;\\d{0,4})*)?[\\dA-PR-TZcf-ntqry=><~]))", 
 ].join("|"), "g");
