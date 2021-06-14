@@ -20,7 +20,7 @@ import {
 } from "./util.ts";
 
 const BUNDLE_SPECIFIER = "deno:///bundle.js";
-const RUNTIME_SCRIPT = "../runtime/main.ts";
+const RUNTIME_SCRIPT = "../runtime/main.bundle.js";
 const INIT_PROPS = [
   "cache",
   "credentials",
@@ -340,17 +340,25 @@ export class DeployWorker {
     };
     let inputRequest: Request | undefined;
     let bodyStream: ReadableStream<Uint8Array> | undefined;
+    let url: URL;
     if (typeof input === "string") {
-      init.url = new URL(input, this.#base).toString();
+      url = new URL(input, this.#base);
+      init.url = url.toString();
     } else if (input instanceof URL) {
+      url = input;
       init.url = input.toString();
     } else if (input instanceof Request) {
-      init.url = input.url;
+      url = new URL(input.url, this.#base);
+      init.url = url.toString();
       inputRequest = input;
     } else {
       throw new TypeError("Argument `input` is of an unsupported type.");
     }
     logger.debug("fetch()", this.#name, init.url);
+    const defaultHeaders: Record<string, string> = {
+      host: url.host,
+      "x-forwarded-for": "127.0.0.1",
+    };
     if (requestInit && inputRequest) {
       let headers: [string, string][] | undefined;
       if (requestInit.body != null) {
@@ -364,8 +372,10 @@ export class DeployWorker {
           type: "stream",
         };
       }
-      init.headers = headers ??
-        parseHeaders(requestInit.headers ?? inputRequest.headers);
+      init.headers = parseHeaders(
+        defaultHeaders,
+        headers ?? requestInit.headers ?? inputRequest.headers,
+      );
       init.signal = this.#watchSignal(
         requestInit.signal ?? inputRequest.signal,
       );
@@ -381,7 +391,10 @@ export class DeployWorker {
           requestInit,
         );
       }
-      init.headers = headers ?? parseHeaders(requestInit.headers);
+      init.headers = parseHeaders(
+        defaultHeaders,
+        headers ?? requestInit.headers,
+      );
       init.signal = this.#watchSignal(requestInit.signal);
       for (const key of INIT_PROPS) {
         // deno-lint-ignore no-explicit-any
@@ -394,12 +407,14 @@ export class DeployWorker {
           type: "stream",
         };
       }
-      init.headers = parseHeaders(inputRequest.headers);
+      init.headers = parseHeaders(defaultHeaders, inputRequest.headers);
       init.signal = this.#watchSignal(inputRequest.signal);
       for (const key of INIT_PROPS) {
         // deno-lint-ignore no-explicit-any
         init[key] = inputRequest[key] as any;
       }
+    } else {
+      init.headers = parseHeaders(defaultHeaders);
     }
     this.#worker.postMessage({
       type: "fetch",
@@ -583,13 +598,16 @@ function parseBodyInit(
 }
 
 function parseHeaders(
+  defaultHeaders: Record<string, string>,
   headers?: HeadersInit,
-): [string, string][] | Record<string, string> | undefined {
-  if (headers instanceof Headers) {
-    const result = [...headers];
-    return result.length ? result : undefined;
+): [string, string][] {
+  const h = new Headers(headers);
+  for (const [key, value] of Object.entries(defaultHeaders)) {
+    if (!h.has(key)) {
+      h.set(key, value);
+    }
   }
-  return headers as ([string, string][] | Record<string, string> | undefined);
+  return [...h];
 }
 
 function isTlsOptions(value: ListenOptions): value is Deno.ListenTlsOptions {

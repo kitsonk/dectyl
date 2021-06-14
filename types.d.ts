@@ -74,7 +74,7 @@ export interface FetchMessageRequestInit {
   body: FetchMessageBody;
   cache?: RequestCache;
   credentials?: RequestCredentials;
-  headers?: [string, string][] | Record<string, string>;
+  headers?: [string, string][];
   integrity?: string;
   keepalive?: boolean;
   method?: string;
