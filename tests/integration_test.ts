@@ -11,7 +11,7 @@ Deno.test({
       const [response] = await worker.fetch("/");
       const actual: {
         env: Record<string, string>;
-        noColor: string;
+        noColor: boolean;
         build: typeof Deno.build;
         customInspect: string;
         inspect: string;
@@ -32,7 +32,7 @@ Deno.test({
         env: "gnu",
       });
       assertEquals(actual.env, { DENO_DEPLOYMENT_ID: "00000000" });
-      assertStrictEquals(actual.noColor, true);
+      assertStrictEquals(actual.noColor, false);
       assertStrictEquals(actual.customInspect, "symbol");
       assertStrictEquals(actual.inspect, "function");
     });

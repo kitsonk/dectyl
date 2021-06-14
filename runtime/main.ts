@@ -102,7 +102,7 @@ class DeployDenoNs {
       "customInspect": createReadOnly(customInspect),
       "env": createReadOnly(env),
       "inspect": createReadOnly(inspect),
-      "noColor": createValueDesc(true),
+      "noColor": createValueDesc(false),
     });
   }
 
