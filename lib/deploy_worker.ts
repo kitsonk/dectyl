@@ -158,6 +158,9 @@ export class DeployWorker {
       bundle: "module",
       check: false,
       compilerOptions: {
+        jsx: "react",
+        jsxFactory: "h",
+        jsxFragmentFactory: "Fragment",
         sourceMap: false,
       },
     });
