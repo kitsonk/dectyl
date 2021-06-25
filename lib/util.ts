@@ -1,5 +1,13 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
+import type { FetchMessageBody } from "../types.d.ts";
+
+export function assert(cond: unknown, msg = "Assertion failed"): asserts cond {
+  if (!cond) {
+    throw new Error(msg);
+  }
+}
+
 export type DeferredState = "pending" | "rejected" | "resolved";
 
 export class Deferred<T> {
@@ -92,4 +100,46 @@ export function checkUnstable() {
       "The `Deno.emit` API is not present but required. Please run this again with the `--unstable` flag.",
     );
   }
+}
+
+export function parseBodyInit(
+  input: string | Request,
+  requestInit: RequestInit,
+): [
+  FetchMessageBody,
+  ReadableStream<Uint8Array> | undefined,
+  [string, string][] | undefined,
+] {
+  assert(requestInit.body);
+  if (requestInit.body instanceof ReadableStream) {
+    return [{ type: "stream" }, requestInit.body, undefined];
+  }
+  if (requestInit.body instanceof URLSearchParams) {
+    const value = [...requestInit.body];
+    return [{ type: "urlsearchparams", value }, undefined, undefined];
+  }
+  if (requestInit.body instanceof FormData) {
+    const request = new Request(input, requestInit);
+    assert(request.body);
+    const headers = [...request.headers];
+    return [
+      { type: "stream" },
+      request.body,
+      headers.length ? headers : undefined,
+    ];
+  }
+  return [{ type: "cloned", value: requestInit.body }, undefined, undefined];
+}
+
+export function parseHeaders(
+  defaultHeaders: Record<string, string>,
+  headers?: HeadersInit,
+): [string, string][] {
+  const h = new Headers(headers);
+  for (const [key, value] of Object.entries(defaultHeaders)) {
+    if (!h.has(key)) {
+      h.set(key, value);
+    }
+  }
+  return [...h];
 }

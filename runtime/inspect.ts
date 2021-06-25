@@ -1,5 +1,7 @@
 // Copyright 2021 the Deno authors. All rights reserved. MIT license.
 
+import { assert } from "../lib/util.ts";
+
 interface ColorCode {
   open: string;
   close: string;
@@ -81,11 +83,6 @@ const colors = {
   yellow: (s: string) => run(s, codes.yellow),
 };
 
-export function assert(cond: unknown, msg = "Assertion failed"): asserts cond {
-  if (!cond) {
-    throw new Error(msg);
-  }
-}
 function isInvalidDate(x: Date) {
   return isNaN(x.getTime());
 }

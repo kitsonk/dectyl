@@ -4,10 +4,9 @@
 /// <reference lib="deno.worker" />
 
 import { DectylConsole } from "./console.ts";
-import { assert, customInspect, inspect } from "./inspect.ts";
+import { customInspect, inspect } from "./inspect.ts";
 import type { DectylMessage, FetchMessageRequestInit } from "../types.d.ts";
-
-import "https://raw.githubusercontent.com/kitsonk/deno_local_file_fetch/main/polyfill.ts";
+import { assert, Deferred, parseBodyInit, parseHeaders } from "../lib/util.ts";
 
 const INIT_PROPS = [
   "cache",
@@ -118,15 +117,25 @@ class DeployWorkerHost {
     number,
     ReadableStreamDefaultController<Uint8Array>
   >();
+  #denoNs: DeployDenoNs;
+  #fetch = globalThis.fetch.bind(globalThis);
+  #fetchId = 1;
+  #hasFetchHandler = false;
+  #pendingFetches = new Map<number, Deferred<Response>>();
   #postMessage: (message: DectylMessage) => void = globalThis.postMessage.bind(
     globalThis,
   );
-  #denoNs: DeployDenoNs;
+  #responseBodyControllers = new Map<
+    number,
+    ReadableStreamDefaultController<Uint8Array>
+  >();
   #signalControllers = new Map<number, AbortController>();
+  #signalId = 1;
   #target: EventTarget;
 
   async #handleMessage(evt: MessageEvent<DectylMessage>) {
     const { data } = evt;
+    this.#log(LogLevel.Debug, "#handleMessage", data);
     switch (data.type) {
       case "abort": {
         const { id } = data;
@@ -138,34 +147,57 @@ class DeployWorkerHost {
         break;
       }
       case "bodyChunk": {
-        const { id, chunk } = data;
-        const bodyController = this.#bodyControllers.get(id);
-        assert(bodyController);
-        bodyController.enqueue(chunk);
+        const { id, chunk, subType } = data;
+        if (subType === "request") {
+          const bodyController = this.#bodyControllers.get(id);
+          assert(bodyController);
+          bodyController.enqueue(chunk);
+        } else {
+          const responseBodyController = this.#responseBodyControllers.get(id);
+          assert(responseBodyController);
+          responseBodyController.enqueue(chunk);
+        }
         break;
       }
       case "bodyClose": {
-        const { id } = data;
-        const bodyController = this.#bodyControllers.get(id);
-        assert(bodyController);
-        bodyController.close();
-        this.#bodyControllers.delete(id);
+        const { id, subType } = data;
+        if (subType === "request") {
+          const bodyController = this.#bodyControllers.get(id);
+          assert(bodyController);
+          bodyController.close();
+          this.#bodyControllers.delete(id);
+        } else {
+          const responseBodyController = this.#responseBodyControllers.get(id);
+          assert(responseBodyController);
+          responseBodyController.close();
+          this.#responseBodyControllers.delete(id);
+        }
         break;
       }
       case "bodyError": {
-        const { id, error } = data;
-        const bodyController = this.#bodyControllers.get(id);
-        assert(bodyController);
-        bodyController.error(error);
-        this.#bodyControllers.delete(id);
+        const { id, error, subType } = data;
+        if (subType === "request") {
+          const bodyController = this.#bodyControllers.get(id);
+          assert(bodyController);
+          bodyController.error(error);
+          this.#bodyControllers.delete(id);
+        } else {
+          const responseBodyController = this.#responseBodyControllers.get(id);
+          assert(responseBodyController);
+          responseBodyController.error(error);
+          this.#responseBodyControllers.delete(id);
+        }
         break;
       }
-      case "init":
-        if (data.options.env) {
-          this.#denoNs.setEnv(data.options.env);
+      case "init": {
+        const { env, hasFetchHandler = false } = data.init;
+        if (env) {
+          this.#denoNs.setEnv(env);
         }
+        this.#hasFetchHandler = hasFetchHandler;
         this.#postMessage({ type: "ready" });
         break;
+      }
       case "import":
         await import(data.specifier);
         this.#postMessage({ type: "loaded" });
@@ -179,6 +211,33 @@ class DeployWorkerHost {
             (response) => this.#postResponse(id, response),
           ),
         );
+        break;
+      }
+      case "respond": {
+        const { id, hasBody, type: _, ...responseInit } = data;
+        let bodyInit: ReadableStream<Uint8Array> | null = null;
+        if (hasBody) {
+          bodyInit = new ReadableStream({
+            start: (controller) => {
+              this.#responseBodyControllers.set(id, controller);
+            },
+          });
+        }
+        const response = new Response(bodyInit, responseInit);
+        const deferred = this.#pendingFetches.get(id);
+        assert(deferred);
+        this.#pendingFetches.delete(id);
+        deferred.resolve(response);
+        break;
+      }
+      case "respondError": {
+        const { id, message, name } = data;
+        const error = new Error(message);
+        error.name = name;
+        const deferred = this.#pendingFetches.get(id);
+        assert(deferred);
+        this.#pendingFetches.delete(id);
+        deferred.reject(error);
         break;
       }
       default:
@@ -232,8 +291,22 @@ class DeployWorkerHost {
     return [init.url, requestInit];
   }
 
-  async #postResponse(id: number, response: Response | Promise<Response>) {
-    const { body, headers, status, statusText } = await response;
+  async #postResponse(id: number, res: Response | Promise<Response>) {
+    let response: Response;
+    try {
+      response = await res;
+    } catch (err) {
+      assert(err instanceof Error);
+      this.#postMessage({
+        type: "respondError",
+        id,
+        message: err.message,
+        name: err.name,
+        stack: err.stack,
+      });
+      return;
+    }
+    const { body, headers, status, statusText } = response;
     this.#postMessage({
       type: "respond",
       id,
@@ -242,6 +315,7 @@ class DeployWorkerHost {
       status,
       statusText,
     });
+    const subType = "response";
     if (body) {
       try {
         for await (const chunk of body) {
@@ -249,6 +323,7 @@ class DeployWorkerHost {
             type: "bodyChunk",
             id,
             chunk,
+            subType,
           });
         }
       } catch (error) {
@@ -256,11 +331,13 @@ class DeployWorkerHost {
           type: "bodyError",
           id,
           error,
+          subType,
         });
       }
       this.#postMessage({
         type: "bodyClose",
         id,
+        subType,
       });
     }
   }
@@ -271,6 +348,46 @@ class DeployWorkerHost {
       message,
       error,
     });
+  }
+
+  async #streamBody(id: number, body: ReadableStream<Uint8Array>) {
+    const subType = "request";
+    try {
+      for await (const chunk of body) {
+        this.#postMessage({
+          type: "bodyChunk",
+          id,
+          chunk,
+          subType,
+        });
+      }
+    } catch (error) {
+      this.#postMessage({
+        type: "bodyError",
+        id,
+        error,
+        subType,
+      });
+    }
+    this.#postMessage({
+      type: "bodyClose",
+      id,
+      subType,
+    });
+  }
+
+  #watchSignal(signal?: AbortSignal | null): number | undefined {
+    if (!signal) {
+      return;
+    }
+    const id = this.#signalId++;
+    signal.addEventListener("abort", () => {
+      this.#postMessage({
+        type: "abort",
+        id,
+      });
+    });
+    return id;
   }
 
   constructor() {
@@ -291,10 +408,113 @@ class DeployWorkerHost {
       "dispatchEvent": createValueDesc(
         target.dispatchEvent.bind(target),
       ),
+      "fetch": createValueDesc(this.fetch.bind(this)),
       "removeEventListener": createValueDesc(
         target.removeEventListener.bind(target),
       ),
     });
+  }
+
+  fetch(
+    input: Request | URL | string,
+    requestInit?: RequestInit,
+  ): Promise<Response> {
+    if (!this.#hasFetchHandler) {
+      return this.#fetch(input, requestInit);
+    }
+    const id = this.#fetchId++;
+    const deferred = new Deferred<Response>();
+    this.#pendingFetches.set(id, deferred);
+    const init: FetchMessageRequestInit = {
+      body: { type: "null" },
+      url: "",
+    };
+    let inputRequest: Request | undefined;
+    let bodyStream: ReadableStream<Uint8Array> | undefined;
+    let url: URL;
+    if (typeof input === "string") {
+      url = new URL(input);
+      init.url = url.toString();
+    } else if (input instanceof URL) {
+      url = input;
+      init.url = input.toString();
+    } else if (input instanceof Request) {
+      url = new URL(input.url);
+      init.url = url.toString();
+      inputRequest = input;
+    } else {
+      throw new TypeError("Argument `input` is of an unsupported type.");
+    }
+    const defaultHeaders: Record<string, string> = {
+      host: url.host,
+      "x-forwarded-for": "127.0.0.1",
+    };
+    if (requestInit && inputRequest) {
+      let headers: [string, string][] | undefined;
+      if (requestInit.body != null) {
+        [init.body, bodyStream, headers] = parseBodyInit(
+          inputRequest ?? init.url,
+          requestInit,
+        );
+      } else if (inputRequest.body) {
+        bodyStream = inputRequest.body;
+        init.body = {
+          type: "stream",
+        };
+      }
+      init.headers = parseHeaders(
+        defaultHeaders,
+        headers ?? requestInit.headers ?? inputRequest.headers,
+      );
+      init.signal = this.#watchSignal(
+        requestInit.signal ?? inputRequest.signal,
+      );
+      for (const key of INIT_PROPS) {
+        // deno-lint-ignore no-explicit-any
+        init[key] = requestInit[key] ?? inputRequest[key] as any;
+      }
+    } else if (requestInit) {
+      let headers: [string, string][] | undefined;
+      if (requestInit.body != null) {
+        [init.body, bodyStream, headers] = parseBodyInit(
+          inputRequest ?? init.url,
+          requestInit,
+        );
+      }
+      init.headers = parseHeaders(
+        defaultHeaders,
+        headers ?? requestInit.headers,
+      );
+      init.signal = this.#watchSignal(requestInit.signal);
+      for (const key of INIT_PROPS) {
+        // deno-lint-ignore no-explicit-any
+        init[key] = requestInit[key] as any;
+      }
+    } else if (inputRequest) {
+      if (inputRequest.body) {
+        bodyStream = inputRequest.body;
+        init.body = {
+          type: "stream",
+        };
+      }
+      init.headers = parseHeaders(defaultHeaders, inputRequest.headers);
+      init.signal = this.#watchSignal(inputRequest.signal);
+      for (const key of INIT_PROPS) {
+        // deno-lint-ignore no-explicit-any
+        init[key] = inputRequest[key] as any;
+      }
+    } else {
+      init.headers = parseHeaders(defaultHeaders);
+    }
+    this.#postMessage({
+      type: "fetch",
+      id,
+      init,
+    });
+    if (bodyStream) {
+      this.#streamBody(id, bodyStream);
+    }
+    return deferred.promise;
   }
 }
 

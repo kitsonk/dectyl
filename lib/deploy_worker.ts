@@ -2,21 +2,22 @@
 
 /// <reference lib="deno.unstable" />
 
-import { assert } from "../deps.ts";
 import * as logger from "./logger.ts";
 import type {
   DectylMessage,
   DeployOptions,
   DeployWorkerInfo,
-  FetchMessageBody,
   FetchMessageRequestInit,
   ImportMessage,
 } from "../types.d.ts";
 import {
+  assert,
   checkPermissions,
   checkUnstable,
   createBlobUrl,
   Deferred,
+  parseBodyInit,
+  parseHeaders,
 } from "./util.ts";
 
 const BUNDLE_SPECIFIER = "deno:///bundle.js";
@@ -63,12 +64,151 @@ interface DectylWorker extends Worker {
   postMessage(msg: DectylMessage): void;
 }
 
+class RequestEvent implements Deno.RequestEvent {
+  #bodyController?: ReadableStreamDefaultController<Uint8Array>;
+  #finalized = false;
+  #id: number;
+  #init: FetchMessageRequestInit;
+  #request?: Request;
+  #response?: Response | Promise<Response>;
+  #responded = new Deferred<void>();
+  #signalController?: AbortController;
+  #worker: DectylWorker;
+
+  #parseInit(init: FetchMessageRequestInit): [string, RequestInit] {
+    const requestInit: RequestInit = {};
+    switch (init.body.type) {
+      case "null":
+        requestInit.body = null;
+        break;
+      case "cloned":
+        requestInit.body = init.body.value as string | Blob | BufferSource;
+        break;
+      case "urlsearchparams":
+        requestInit.body = new URLSearchParams(
+          init.body.value as [string, string][],
+        );
+        break;
+      case "stream":
+        requestInit.body = new ReadableStream({
+          start: (controller) => {
+            this.#bodyController = controller;
+          },
+        });
+    }
+    if (init.signal) {
+      const controller = this.#signalController = new AbortController();
+      requestInit.signal = controller.signal;
+    }
+    for (const key of INIT_PROPS) {
+      // deno-lint-ignore no-explicit-any
+      requestInit[key] = init[key] as any;
+    }
+
+    return [init.url, requestInit];
+  }
+
+  get request(): Request {
+    if (this.#request) {
+      return this.#request;
+    }
+    return this.#request = new Request(...this.#parseInit(this.#init));
+  }
+
+  constructor(worker: DectylWorker, id: number, init: FetchMessageRequestInit) {
+    this.#id = id;
+    this.#init = init;
+    this.#worker = worker;
+  }
+
+  abort() {
+    this.#signalController?.abort();
+  }
+
+  close() {
+    this.#bodyController?.close();
+  }
+
+  enqueue(chunk: Uint8Array) {
+    if (!this.#bodyController) {
+      throw new Error("Response does not have a body controller.");
+    }
+    this.#bodyController.enqueue(chunk);
+  }
+
+  // deno-lint-ignore no-explicit-any
+  error(error: any) {
+    this.#bodyController?.error(error);
+  }
+
+  async finalize() {
+    if (this.#finalized) {
+      return;
+    }
+    this.#finalized = true;
+    assert(this.#request);
+    const id = this.#id;
+    let response: Response;
+    try {
+      response = await (this.#response ?? fetch(this.#request));
+    } catch (err) {
+      assert(err instanceof Error);
+      const { message, name } = err;
+      this.#worker.postMessage({
+        type: "respondError",
+        id,
+        message,
+        name,
+      });
+      return;
+    }
+    const { body, headers, status, statusText } = response;
+    this.#worker.postMessage({
+      type: "respond",
+      id,
+      hasBody: body != null,
+      headers: [...headers],
+      status,
+      statusText,
+    });
+    if (body) {
+      const subType = "response";
+      try {
+        for await (const chunk of body) {
+          this.#worker.postMessage({ type: "bodyChunk", id, chunk, subType });
+        }
+      } catch (error) {
+        this.#worker.postMessage({ type: "bodyError", id, error, subType });
+      }
+      this.#worker.postMessage({ type: "bodyClose", id, subType });
+    }
+  }
+
+  respondWith(response: Response | Promise<Response>): Promise<void> {
+    if (this.#response) {
+      throw new TypeError("respondWith has already been called.");
+    }
+    this.#response = response;
+    return this.#responded.promise;
+  }
+
+  [Symbol.for("Deno.customInspect")](inspect: (value: unknown) => string) {
+    return `${this.constructor.name} ${
+      inspect({
+        request: this.request,
+        respondWith: this.respondWith,
+      })
+    }`;
+  }
+}
+
 export class DeployWorker {
   #base: URL;
   #bodyControllers = new Map<
     number,
     ReadableStreamDefaultController<Uint8Array>
   >();
+  #fetchHandler?: (evt: Deno.RequestEvent) => Promise<void> | void;
   #fetchId = 1;
   #logs: ReadableStream<string>;
   #logsController!: ReadableStreamDefaultController<string>;
@@ -78,42 +218,84 @@ export class DeployWorker {
     Deferred<[Response, RequestResponseInfo]>
   >();
   #ready = new Deferred<void>();
+  #pendingRequests = new Map<number, RequestEvent>();
   #signalId = 1;
   #specifier: string | URL;
   #state: DeployWorkerState = "loading";
   #watch: boolean;
   #worker: DectylWorker;
 
+  #handleError(evt: ErrorEvent) {
+    logger.error(
+      `[${this.name}] ${evt.message}\n  at ${evt.filename}:${evt.lineno}:${evt.colno}`,
+    );
+  }
+
+  async #handleFetch(id: number, init: FetchMessageRequestInit) {
+    if (this.#fetchHandler) {
+      const requestEvent = new RequestEvent(this.#worker, id, init);
+      this.#pendingRequests.set(id, requestEvent);
+      await this.#fetchHandler(requestEvent);
+      await requestEvent.finalize();
+      this.#pendingRequests.delete(id);
+    }
+  }
+
   #handleMessage(evt: MessageEvent<DectylMessage>) {
     const { data } = evt;
-    logger.debug("#handleMessage", data);
+    if (data.type !== "internalLog") {
+      logger.debug("#handleMessage", data);
+    }
     switch (data.type) {
       case "bodyChunk": {
-        const { id, chunk } = data;
-        const bodyController = this.#bodyControllers.get(id);
-        assert(bodyController);
-        bodyController.enqueue(chunk);
+        const { id, chunk, subType } = data;
+        if (subType === "response") {
+          const bodyController = this.#bodyControllers.get(id);
+          assert(bodyController);
+          bodyController.enqueue(chunk);
+        } else {
+          const requestEvent = this.#pendingRequests.get(id);
+          assert(requestEvent);
+          requestEvent.enqueue(chunk);
+        }
         break;
       }
       case "bodyClose": {
-        const { id } = data;
-        const bodyController = this.#bodyControllers.get(id);
-        assert(bodyController);
-        bodyController.close();
-        this.#bodyControllers.delete(id);
+        const { id, subType } = data;
+        if (subType === "response") {
+          const bodyController = this.#bodyControllers.get(id);
+          assert(bodyController);
+          bodyController.close();
+          this.#bodyControllers.delete(id);
+        } else {
+          const requestEvent = this.#pendingRequests.get(id);
+          assert(requestEvent);
+          requestEvent.close();
+        }
         break;
       }
       case "bodyError": {
-        const { id, error } = data;
-        const bodyController = this.#bodyControllers.get(id);
-        assert(bodyController);
-        bodyController.error(error);
-        this.#bodyControllers.delete(id);
+        const { id, error, subType } = data;
+        if (subType === "response") {
+          const bodyController = this.#bodyControllers.get(id);
+          assert(bodyController);
+          bodyController.error(error);
+          this.#bodyControllers.delete(id);
+        } else {
+          const requestEvent = this.#pendingRequests.get(id);
+          assert(requestEvent);
+          requestEvent.error(error);
+        }
         break;
       }
       case "internalLog": {
         const { level, messages } = data;
         logger.log(level, `[${this.#name}]`, ...messages);
+        break;
+      }
+      case "fetch": {
+        const { id, init } = data;
+        this.#handleFetch(id, init);
         break;
       }
       case "loaded":
@@ -147,6 +329,17 @@ export class DeployWorker {
         deferred.resolve([response, { duration: 0 }]);
         break;
       }
+      case "respondError": {
+        const { id, message, name, stack } = data;
+        const error = new Error(message);
+        error.name = name;
+        error.stack = stack;
+        const deferred = this.#pendingFetches.get(id);
+        assert(deferred);
+        this.#pendingFetches.delete(id);
+        deferred.reject(error);
+        break;
+      }
       default:
         logger.warn(`Unhandled message type: "${data.type}"`);
     }
@@ -176,35 +369,22 @@ export class DeployWorker {
 
   async #streamBody(id: number, body: ReadableStream<Uint8Array>) {
     logger.debug("#streamBody", id);
+    const subType = "request";
     try {
       for await (const chunk of body) {
         if (!(this.#state === "running" || this.#state === "stopped")) {
-          this.#worker.postMessage({
-            type: "bodyClose",
-            id,
-          });
+          this.#worker.postMessage({ type: "bodyClose", id, subType });
           return;
         }
-        this.#worker.postMessage({
-          type: "bodyChunk",
-          id,
-          chunk,
-        });
+        this.#worker.postMessage({ type: "bodyChunk", id, chunk, subType });
       }
     } catch (error) {
       if (this.#state === "running" || this.#state === "stopped") {
-        this.#worker.postMessage({
-          type: "bodyError",
-          id,
-          error,
-        });
+        this.#worker.postMessage({ type: "bodyError", id, error, subType });
       }
     }
     if (this.#state === "running" || this.#state === "stopped") {
-      this.#worker.postMessage({
-        type: "bodyClose",
-        id,
-      });
+      this.#worker.postMessage({ type: "bodyClose", id, subType });
     }
   }
 
@@ -227,16 +407,23 @@ export class DeployWorker {
 
   constructor(
     specifier: string | URL,
-    { host = "localhost", name = createName(), watch = false, ...options }:
-      DeployOptions = {},
+    {
+      fetchHandler,
+      host = "localhost",
+      name = createName(),
+      watch = false,
+      ...options
+    }: DeployOptions = {},
   ) {
     logger.debug("DeployWorker.construct", {
       specifier,
       host,
       name,
       watch,
+      fetchHandler,
       options,
     });
+    this.#fetchHandler = fetchHandler;
     this.#logs = new ReadableStream({
       start: (controller) => {
         this.#logsController = controller;
@@ -250,9 +437,14 @@ export class DeployWorker {
     this.#watch = watch;
     this.#worker = new Worker(script, { name, type: "module" });
     this.#worker.addEventListener("message", (evt) => this.#handleMessage(evt));
+    this.#worker.addEventListener("error", (evt) => this.#handleError(evt));
+    const init = {
+      ...options,
+      hasFetchHandler: !!fetchHandler,
+    };
     this.#worker.postMessage({
       type: "init",
-      options,
+      init,
     });
   }
 
@@ -569,48 +761,6 @@ let uid = 0;
 
 function createName(): string {
   return `dectyl_${String(uid++).padStart(3, "0")}`;
-}
-
-function parseBodyInit(
-  input: string | Request,
-  requestInit: RequestInit,
-): [
-  FetchMessageBody,
-  ReadableStream<Uint8Array> | undefined,
-  [string, string][] | undefined,
-] {
-  assert(requestInit.body);
-  if (requestInit.body instanceof ReadableStream) {
-    return [{ type: "stream" }, requestInit.body, undefined];
-  }
-  if (requestInit.body instanceof URLSearchParams) {
-    const value = [...requestInit.body];
-    return [{ type: "urlsearchparams", value }, undefined, undefined];
-  }
-  if (requestInit.body instanceof FormData) {
-    const request = new Request(input, requestInit);
-    assert(request.body);
-    const headers = [...request.headers];
-    return [
-      { type: "stream" },
-      request.body,
-      headers.length ? headers : undefined,
-    ];
-  }
-  return [{ type: "cloned", value: requestInit.body }, undefined, undefined];
-}
-
-function parseHeaders(
-  defaultHeaders: Record<string, string>,
-  headers?: HeadersInit,
-): [string, string][] {
-  const h = new Headers(headers);
-  for (const [key, value] of Object.entries(defaultHeaders)) {
-    if (!h.has(key)) {
-      h.set(key, value);
-    }
-  }
-  return [...h];
 }
 
 function isTlsOptions(value: ListenOptions): value is Deno.ListenTlsOptions {

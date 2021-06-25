@@ -1,9 +1,19 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
+export interface RequestEvent {
+  readonly request: Request;
+  respondWith(r: Response | Promise<Response>): Promise<void>;
+}
+
 export interface DeployOptions extends DeployWorkerOptions {
   /** The host to use when sending requests into the worker.  Defaults to
    * `localhost`. */
   host?: string;
+  /** An optional handler for fetch requests coming from the deploy script.
+   * This is design to allow outbound fetch requests from the Deploy script to
+   * be intercepted.  If the `respondWith()` is not called in the handler, then
+   * the request will simply be passed through to the native `fetch()`. */
+  fetchHandler?: (evt: RequestEvent) => Promise<void> | void;
   /** The name of the deploy worker. If `undefined` a unique name will be
    * generated. */
   name?: string;
@@ -24,6 +34,10 @@ export interface DeployWorkerOptions {
   env?: Record<string, string>;
 }
 
+export interface DeployWorkerInit extends DeployWorkerOptions {
+  hasFetchHandler: boolean;
+}
+
 export type DectylMessage =
   | AbortMessage
   | BodyChunkMessage
@@ -36,6 +50,7 @@ export type DectylMessage =
   | LoadedMessage
   | LogMessage
   | ReadyMessage
+  | RespondErrorMessage
   | RespondMessage;
 
 export interface DectylMessageBase {
@@ -51,11 +66,13 @@ export interface BodyChunkMessage {
   type: "bodyChunk";
   id: number;
   chunk: Uint8Array;
+  subType: "request" | "response";
 }
 
 export interface BodyCloseMessage {
   type: "bodyClose";
   id: number;
+  subType: "request" | "response";
 }
 
 export interface BodyErrorMessage {
@@ -63,6 +80,7 @@ export interface BodyErrorMessage {
   id: number;
   // deno-lint-ignore no-explicit-any
   error: any;
+  subType: "request" | "response";
 }
 
 export interface FetchMessageBody {
@@ -99,7 +117,7 @@ export interface ImportMessage {
 
 export interface InitMessage {
   type: "init";
-  options: DeployWorkerOptions;
+  init: DeployWorkerInit;
 }
 
 export interface InternalLogMessage {
@@ -120,6 +138,14 @@ export interface LogMessage {
 
 export interface ReadyMessage {
   type: "ready";
+}
+
+export interface RespondErrorMessage {
+  type: "respondError";
+  id: number;
+  message: string;
+  name: string;
+  stack?: string;
 }
 
 export interface RespondMessage {
