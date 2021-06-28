@@ -14,17 +14,24 @@ import type { RequestEvent } from "../types.d.ts";
 export async function fileFetchHandler(evt: RequestEvent) {
   const url = new URL(evt.request.url);
   if (url.protocol === "file:") {
-    const stat = await Deno.stat(url);
     let response: Response;
-    if (stat.isFile) {
-      const ct = contentType(lookup(evt.request.url) ?? "") ?? "text/plain";
-      const body = await Deno.readFile(url);
-      response = new Response(body, {
-        headers: {
-          "content-type": ct,
-        },
-      });
-    } else {
+    try {
+      const stat = await Deno.stat(url);
+      if (stat.isFile) {
+        const ct = contentType(lookup(evt.request.url) ?? "") ?? "text/plain";
+        const body = await Deno.readFile(url);
+        response = new Response(body, {
+          headers: {
+            "content-type": ct,
+          },
+        });
+      } else {
+        response = new Response(null, {
+          status: 403,
+          statusText: "Forbidden",
+        });
+      }
+    } catch {
       response = new Response(null, {
         status: 404,
         statusText: "Not Found",
