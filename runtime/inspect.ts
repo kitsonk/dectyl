@@ -851,7 +851,7 @@ function inspectObject(
   inspectOptions: Deno.InspectOptions,
 ): string {
   if (customInspect in value && typeof value[customInspect] === "function") {
-    return String(value[customInspect]());
+    return String(value[customInspect](inspect));
   }
   if (value instanceof Error) {
     return String(value.stack);

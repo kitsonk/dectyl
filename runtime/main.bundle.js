@@ -192,7 +192,7 @@ function maybeColor(fn, inspectOptions) {
 function inspectFunction(value, level, inspectOptions) {
     const cyan = maybeColor(colors.cyan, inspectOptions);
     if (customInspect in value && typeof value[customInspect] === "function") {
-        return String(value[customInspect]());
+        return String(value[customInspect](inspect));
     }
     let cstrName = Object.getPrototypeOf(value)?.constructor?.name;
     if (!cstrName) {
@@ -615,7 +615,7 @@ function inspectRawObject(value, level, inspectOptions) {
 }
 function inspectObject(value, level, inspectOptions) {
     if (customInspect in value && typeof value[customInspect] === "function") {
-        return String(value[customInspect]());
+        return String(value[customInspect](inspect));
     }
     if (value instanceof Error) {
         return String(value.stack);
