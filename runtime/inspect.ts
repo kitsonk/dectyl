@@ -149,13 +149,13 @@ function maybeColor(
 
 function inspectFunction(
   // deno-lint-ignore ban-types
-  value: Function & { [customInspect]?: () => string },
+  value: Function & { [customInspect]?: (fn: typeof inspect) => string },
   level: number,
   inspectOptions: Deno.InspectOptions,
 ) {
   const cyan = maybeColor(colors.cyan, inspectOptions);
   if (customInspect in value && typeof value[customInspect] === "function") {
-    return String(value[customInspect]!());
+    return String(value[customInspect]!(inspect));
   }
   // Might be Function/AsyncFunction/GeneratorFunction/AsyncGeneratorFunction
   let cstrName = Object.getPrototypeOf(value)?.constructor?.name;
