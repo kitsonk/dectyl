@@ -11,7 +11,6 @@ import { assert, Deferred, parseBodyInit, parseHeaders } from "../lib/util.ts";
 const INIT_PROPS = [
   "cache",
   "credentials",
-  "headers",
   "integrity",
   "keepalive",
   "method",
@@ -283,6 +282,7 @@ class DeployWorkerHost {
       this.#signalControllers.set(id, controller);
       requestInit.signal = controller.signal;
     }
+    requestInit.headers = init.headers;
     for (const key of INIT_PROPS) {
       // deno-lint-ignore no-explicit-any
       requestInit[key] = init[key] as any;
@@ -422,6 +422,7 @@ class DeployWorkerHost {
     if (!this.#hasFetchHandler) {
       return this.#fetch(input, requestInit);
     }
+    this.#log(LogLevel.Debug, "fetch()", { input, requestInit });
     const id = this.#fetchId++;
     const deferred = new Deferred<Response>();
     this.#pendingFetches.set(id, deferred);

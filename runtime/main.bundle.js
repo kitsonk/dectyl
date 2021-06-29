@@ -1766,7 +1766,6 @@ class DectylConsole {
 const INIT_PROPS = [
     "cache",
     "credentials",
-    "headers",
     "integrity",
     "keepalive",
     "method",
@@ -2021,6 +2020,7 @@ class DeployWorkerHost {
             this.#signalControllers.set(id, controller);
             requestInit.signal = controller.signal;
         }
+        requestInit.headers = init.headers;
         for (const key of INIT_PROPS){
             requestInit[key] = init[key];
         }
@@ -2146,6 +2146,10 @@ class DeployWorkerHost {
         if (!this.#hasFetchHandler) {
             return this.#fetch(input, requestInit);
         }
+        this.#log(LogLevel.Debug, "fetch()", {
+            input,
+            requestInit
+        });
         const id = this.#fetchId++;
         const deferred = new Deferred();
         this.#pendingFetches.set(id, deferred);

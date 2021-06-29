@@ -100,6 +100,7 @@ class RequestEvent implements Deno.RequestEvent {
       const controller = this.#signalController = new AbortController();
       requestInit.signal = controller.signal;
     }
+    requestInit.headers = init.headers;
     for (const key of INIT_PROPS) {
       // deno-lint-ignore no-explicit-any
       requestInit[key] = init[key] as any;
@@ -150,7 +151,7 @@ class RequestEvent implements Deno.RequestEvent {
     const id = this.#id;
     let response: Response;
     try {
-      response = await (this.#response ?? fetch(this.#request));
+      response = (await this.#response) ?? await fetch(this.#request);
     } catch (err) {
       assert(err instanceof Error);
       const { message, name } = err;
