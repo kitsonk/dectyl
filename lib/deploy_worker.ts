@@ -7,6 +7,7 @@ import type {
   DectylMessage,
   DeployOptions,
   DeployWorkerInfo,
+  FetchHandler,
   FetchMessageRequestInit,
   ImportMessage,
 } from "../types.d.ts";
@@ -116,6 +117,10 @@ class RequestEvent implements Deno.RequestEvent {
     return this.#request = new Request(...this.#parseInit(this.#init));
   }
 
+  get responded(): boolean {
+    return !!this.#response;
+  }
+
   constructor(worker: DectylWorker, id: number, init: FetchMessageRequestInit) {
     this.#id = id;
     this.#init = init;
@@ -209,7 +214,7 @@ export class DeployWorker {
     number,
     ReadableStreamDefaultController<Uint8Array>
   >();
-  #fetchHandler?: (evt: Deno.RequestEvent) => Promise<void> | void;
+  #fetchHandler?: FetchHandler | FetchHandler[];
   #fetchId = 1;
   #logs: ReadableStream<string>;
   #logsController!: ReadableStreamDefaultController<string>;
@@ -236,7 +241,16 @@ export class DeployWorker {
     if (this.#fetchHandler) {
       const requestEvent = new RequestEvent(this.#worker, id, init);
       this.#pendingRequests.set(id, requestEvent);
-      await this.#fetchHandler(requestEvent);
+      if (Array.isArray(this.#fetchHandler)) {
+        for (const handler of this.#fetchHandler) {
+          await handler(requestEvent);
+          if (requestEvent.responded) {
+            break;
+          }
+        }
+      } else {
+        await this.#fetchHandler(requestEvent);
+      }
       await requestEvent.finalize();
       this.#pendingRequests.delete(id);
     }

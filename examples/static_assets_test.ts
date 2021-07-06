@@ -1,7 +1,7 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
 import { createWorker } from "../mod.ts";
-import { assertEquals } from "https://deno.land/std@0.97.0/testing/asserts.ts";
+import { assertEquals } from "https://deno.land/std@0.100.0/testing/asserts.ts";
 import {
   contentType,
   lookup,
@@ -21,7 +21,7 @@ Deno.test({
       );
       assertEquals([...response.headers], [[
         "content-type",
-        "text/html; charset=urf-8",
+        "text/html; charset=utf-8",
       ]]);
     });
   },

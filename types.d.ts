@@ -5,6 +5,8 @@ export interface RequestEvent {
   respondWith(r: Response | Promise<Response>): Promise<void>;
 }
 
+export type FetchHandler = (evt: RequestEvent) => Promise<void> | void;
+
 export interface DeployOptions extends DeployWorkerOptions {
   /** The host to use when sending requests into the worker.  Defaults to
    * `localhost`. */
@@ -12,8 +14,12 @@ export interface DeployOptions extends DeployWorkerOptions {
   /** An optional handler for fetch requests coming from the deploy script.
    * This is design to allow outbound fetch requests from the Deploy script to
    * be intercepted.  If the `respondWith()` is not called in the handler, then
-   * the request will simply be passed through to the native `fetch()`. */
-  fetchHandler?: (evt: RequestEvent) => Promise<void> | void;
+   * the request will simply be passed through to the native `fetch()`.
+   *
+   * If the value is an array, each handler in the array will be called until
+   * one responds, if none of them responds, then the request will be passed
+   * to the native `fetch()`. */
+  fetchHandler?: FetchHandler | FetchHandler[];
   /** The name of the deploy worker. If `undefined` a unique name will be
    * generated. */
   name?: string;
