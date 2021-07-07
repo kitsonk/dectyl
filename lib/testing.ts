@@ -1,6 +1,15 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
-import { assert, assertEquals } from "../deps.ts";
+import { assert, assertEquals, AssertionError } from "../deps.ts";
+
+/** Asserts that there are no diagnostics returned, otherwise logs the
+ * diagnostics to the console and throws. */
+export function assertDiagnostics(diagnostics?: Deno.Diagnostic[]): void {
+  if (diagnostics?.length) {
+    console.log(Deno.formatDiagnostics(diagnostics));
+    throw new AssertionError("Expected to not have any diagnostics.");
+  }
+}
 
 /** Return a request init that mocks what a Chromium request would look like
  * from a client.

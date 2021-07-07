@@ -22,7 +22,18 @@ import {
 } from "./util.ts";
 
 const BUNDLE_SPECIFIER = "deno:///bundle.js";
-const RUNTIME_SCRIPT = "../runtime/main.bundle.js";
+const RUNTIME_SCRIPT = new URL("../runtime/main.bundle.js", import.meta.url)
+  .toString();
+const TYPES_FETCHEVENT = new URL(
+  "../types/deploy.fetchevent.d.ts",
+  import.meta.url,
+).toString();
+const TYPES_DEPLOY_NS = new URL("../types/deploy.ns.d.ts", import.meta.url)
+  .toString();
+const TYPES_SHAREDGLOBALS = new URL(
+  "../types/deploy.sharedglobals.d.ts",
+  import.meta.url,
+).toString();
 const INIT_PROPS = [
   "cache",
   "credentials",
@@ -48,9 +59,34 @@ interface ListenOptions {
 }
 
 interface CheckOptions {
-  includeLib?: boolean;
-  includeFetchEvent?: boolean;
+  /** Include the Deno CLI APIs when type checking. This cannot be true if
+   * `includeLib` is also true. This defaults to `true`. */
   includeCli?: boolean;
+  /** Include the built in DOM libraries when type checking. This might be
+   * needed if the Deploy code, or dependent libraries are written to run both
+   * in Deploy and a browser. This cannot be true if `includeLib` is true. This
+   * defaults to `false`. */
+  includeDom?: boolean;
+  /** Include the Deploy fetch event API when type checking. This defaults to
+   * `true`. */
+  includeFetchEvent?: boolean;
+  /** Include the Deploy "global" APIs when type checking. If the code is only
+   * written to run on Deploy and you want the maximum type checking safety for
+   * this code, this option can be enabled. This option being true though means
+   * that `includeDom` and `includeCli` cannot be true. This defaults to
+   * `false`. */
+  includeLib?: boolean;
+  /** Include the Deno CLI unstable APIs when type checking. If the code or
+   * dependent libraries utilise unstable Deno CLI APIs, this might be needed.
+   * This defaults to `false`. */
+  includeUnstableCli?: boolean;
+  /** Filter out diagnostics that are unlikely to be issues with the code, and
+   * are potential issues with conflicting global declarations. When including
+   * 3rd party libraries, they can often include re-declarations of global
+   * items, which will be reported as a diagnostics issue. This flag attempts to
+   * filter those out. Setting the flag to `false` will return all diagnostics.
+   * The flag defaults to `true`. */
+  filter?: boolean;
 }
 
 type DeployWorkerState =
@@ -446,11 +482,9 @@ export class DeployWorker {
     });
     this.#specifier = specifier;
     this.#base = new URL(`https://${host}`);
-    const script = (new URL(RUNTIME_SCRIPT, import.meta.url))
-      .toString();
     this.#name = name;
     this.#watch = watch;
-    this.#worker = new Worker(script, { name, type: "module" });
+    this.#worker = new Worker(RUNTIME_SCRIPT, { name, type: "module" });
     this.#worker.addEventListener("message", (evt) => this.#handleMessage(evt));
     this.#worker.addEventListener("error", (evt) => this.#handleError(evt));
     const init = {
@@ -497,12 +531,11 @@ export class DeployWorker {
     return this.#state;
   }
 
-  /** Type check the program.
-   *
-   * **TO BE IMPLEMENTED**
-   */
-  check(_options: CheckOptions = {}): Promise<Deno.Diagnostic[]> {
-    return Promise.resolve([]);
+  /** Type check the program as if it were a Deploy script, resolving with an
+   * array of diagnostic information.  If the array is empty, there were no
+   * issues with type checking. */
+  check(options: CheckOptions = {}): Promise<Deno.Diagnostic[]> {
+    return check(this.#specifier, options);
   }
 
   /** Close and terminate the worker. The worker will resolve when any pending
@@ -770,6 +803,105 @@ export async function createWorker(
   const worker = new DeployWorker(specifier, options);
   await worker.ready;
   return worker;
+}
+
+/** Type check a script as if it were a Deploy script, resolving with an array
+ * of diagnostic information.  If the array is empty, there were no issues with
+ * type checking.
+ *
+ * ```ts
+ * const diagnostics = await check("./my_deploy_script.ts");
+ * if (diagnostics.length) {
+ *   console.log("there were errors");
+ * }
+ * ```
+ *
+ * `Deno.formatDiagnostics()` can be used to format any diagnostics returned
+ * which provides a more human readable version:
+ *
+ * ```ts
+ * const diagnostics = await check("./my_deploy_script.ts");
+ * if (diagnostics.length) {
+ *   console.log(Deno.formatDiagnostics(diagnostics));
+ * }
+ * ```
+ *
+ * By default, the type checking will type check the script as both a Deno
+ * Deploy and Deno CLI script. This means code written for Deno CLI and Deploy
+ * should type check ok, but may lead to runtime errors if the code using the
+ * CLI only APIs does not properly detect the environment it is running it.
+ * The options argument can be used to modify this behavior.
+ */
+export async function check(
+  specifier: string | URL,
+  options: CheckOptions = {},
+): Promise<Deno.Diagnostic[]> {
+  checkUnstable();
+  await checkPermissions(specifier);
+  const {
+    includeCli = true,
+    includeDom = false,
+    includeLib = false,
+    includeFetchEvent = true,
+    includeUnstableCli = false,
+    filter = true,
+  } = options;
+  if (includeLib && includeDom) {
+    throw new TypeError(
+      "The option includeLib and includeDom cannot both be true.",
+    );
+  }
+  if (includeLib && includeCli) {
+    throw new TypeError(
+      "The option includeLib and includeCli cannot both be true.",
+    );
+  }
+  const types: string[] = [];
+  const lib: string[] = ["esnext"];
+  if (includeDom) {
+    lib.push("dom", "dom.iterable", "dom.asynciterable");
+  }
+  if (includeCli) {
+    if (!includeDom) {
+      lib.push("deno.window");
+    }
+    lib.push("deno.ns");
+  } else if (includeLib) {
+    types.push(TYPES_DEPLOY_NS, TYPES_SHAREDGLOBALS);
+  }
+  if (includeFetchEvent) {
+    types.push(TYPES_FETCHEVENT);
+  }
+  if (includeUnstableCli) {
+    lib.push("deno.unstable");
+  }
+  const { diagnostics } = await Deno.emit(specifier, {
+    compilerOptions: {
+      jsx: "react",
+      jsxFactory: "h",
+      jsxFragmentFactory: "Fragment",
+      lib,
+      sourceMap: false,
+      types,
+    },
+  });
+  if (filter) {
+    return diagnostics.filter((diagnostic) => {
+      // TS2300 [ERROR]: Duplicate identifier 'FetchEvent'.
+      if (
+        diagnostic.code === 2300 &&
+        (diagnostic.fileName?.includes("types/deploy") ||
+          diagnostic.relatedInformation?.some((ri) =>
+            ri.fileName?.includes("types/deploy")
+          ))
+      ) {
+        return false;
+      }
+      return true;
+    });
+  } else {
+    return diagnostics;
+  }
 }
 
 let uid = 0;

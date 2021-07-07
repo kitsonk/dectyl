@@ -1,6 +1,6 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
-export { createWorker } from "./lib/deploy_worker.ts";
+export { check, createWorker } from "./lib/deploy_worker.ts";
 export type { DeployWorker } from "./lib/deploy_worker.ts";
 export * as handlers from "./lib/handlers.ts";
 export { LogLevel, setLevel as setLogLevel } from "./lib/logger.ts";

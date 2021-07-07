@@ -1,6 +1,6 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
-import { createWorker } from "../mod.ts";
+import { check, createWorker, testing } from "../mod.ts";
 import { assertEquals } from "https://deno.land/std@0.100.0/testing/asserts.ts";
 import {
   contentType,
@@ -61,5 +61,14 @@ Deno.test({
         [["content-type", "text/css; charset=utf-8"]],
       );
     });
+  },
+});
+
+Deno.test({
+  name: "static asset type checking",
+  async fn() {
+    testing.assertDiagnostics(
+      await check("./examples/deploy_scripts/static_assets.ts"),
+    );
   },
 });
