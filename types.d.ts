@@ -8,6 +8,16 @@ export interface RequestEvent {
 export type FetchHandler = (evt: RequestEvent) => Promise<void> | void;
 
 export interface DeployOptions extends DeployWorkerOptions {
+  /** Determines if the Deploy script should be bundled before being imported
+   * into the worker. This defaults to `true`.
+   *
+   * If not bundling before deploying in the worker, it means the Deno CLI
+   * process will import the root module and all of its dependencies, applying
+   * the Deno CLI settings. This means by default it will type check any
+   * TypeScript modules and has different defaults for JSX/TSX if used in the
+   * application.  You may want to use `--no-check` and `--config` to change
+   * these behaviors. */
+  bundle?: boolean;
   /** The host to use when sending requests into the worker.  Defaults to
    * `localhost`. */
   host?: string;

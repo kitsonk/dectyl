@@ -2,6 +2,7 @@
 
 /// <reference lib="deno.unstable" />
 
+import { toFileUrl } from "../deps.ts";
 import * as logger from "./logger.ts";
 import type {
   DectylMessage,
@@ -250,6 +251,7 @@ export class DeployWorker {
     number,
     ReadableStreamDefaultController<Uint8Array>
   >();
+  #bundle: boolean;
   #fetchHandler?: FetchHandler | FetchHandler[];
   #fetchId = 1;
   #logs: ReadableStream<string>;
@@ -398,19 +400,25 @@ export class DeployWorker {
 
   async #setup() {
     logger.debug("#setup");
-    const { diagnostics, files } = await Deno.emit(this.#specifier, {
-      bundle: "module",
-      check: false,
-      compilerOptions: {
-        jsx: "react",
-        jsxFactory: "h",
-        jsxFragmentFactory: "Fragment",
-        sourceMap: false,
-      },
-    });
-    assert(diagnostics.length === 0);
-    assert(files[BUNDLE_SPECIFIER]);
-    const specifier = createBlobUrl(files[BUNDLE_SPECIFIER]);
+    let specifier =
+      (typeof this.#specifier === "string"
+        ? new URL(this.#specifier, toFileUrl(`${Deno.cwd()}/`))
+        : this.#specifier).toString();
+    if (this.#bundle) {
+      const { diagnostics, files } = await Deno.emit(this.#specifier, {
+        bundle: "module",
+        check: false,
+        compilerOptions: {
+          jsx: "react",
+          jsxFactory: "h",
+          jsxFragmentFactory: "Fragment",
+          sourceMap: false,
+        },
+      });
+      assert(diagnostics.length === 0);
+      assert(files[BUNDLE_SPECIFIER]);
+      specifier = createBlobUrl(files[BUNDLE_SPECIFIER]);
+    }
     const importMessage: ImportMessage = {
       type: "import",
       specifier,
@@ -459,6 +467,7 @@ export class DeployWorker {
   constructor(
     specifier: string | URL,
     {
+      bundle = true,
       fetchHandler,
       host = "localhost",
       name = createName(),
@@ -482,9 +491,17 @@ export class DeployWorker {
     });
     this.#specifier = specifier;
     this.#base = new URL(`https://${host}`);
+    this.#bundle = bundle;
     this.#name = name;
     this.#watch = watch;
-    this.#worker = new Worker(RUNTIME_SCRIPT, { name, type: "module" });
+    const isLocal = typeof specifier === "string"
+      ? specifier.match(/^(file:|[.\\\/])/)
+      : specifier.protocol === "file:";
+    this.#worker = new Worker(RUNTIME_SCRIPT, {
+      name,
+      type: "module",
+      deno: { permissions: { net: true, read: isLocal ? true : "inherit" } },
+    });
     this.#worker.addEventListener("message", (evt) => this.#handleMessage(evt));
     this.#worker.addEventListener("error", (evt) => this.#handleError(evt));
     const init = {

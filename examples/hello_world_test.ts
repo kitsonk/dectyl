@@ -39,6 +39,29 @@ Deno.test({
 });
 
 Deno.test({
+  name: "hello-world no bundle",
+  async fn() {
+    const helloWorld = await createWorker(
+      "./examples/deploy_scripts/hello_world.ts",
+      { bundle: false },
+    );
+
+    const logs: string[] = [];
+    (async () => {
+      for await (const log of helloWorld.logs) {
+        logs.push(log);
+      }
+    })();
+
+    await helloWorld.run(async function () {
+      const [response] = await this.fetch("/");
+      assertEquals(await response.text(), "Hello World!");
+      assertEquals([...response.headers], [["content-type", "text/plain"]]);
+    });
+  },
+});
+
+Deno.test({
   name: "hello-world type checking",
   async fn() {
     testing.assertDiagnostics(

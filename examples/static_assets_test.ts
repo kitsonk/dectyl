@@ -28,6 +28,29 @@ Deno.test({
 });
 
 Deno.test({
+  name: "root page static_assets no bundle",
+  async fn() {
+    const staticAssets = await createWorker(
+      "./examples/deploy_scripts/static_assets.ts",
+      {
+        bundle: false,
+      },
+    );
+    await staticAssets.run(async function () {
+      const [response] = await this.fetch("/");
+      assertEquals(
+        await response.text(),
+        `<html>\n      <head>\n        <link rel="stylesheet" href="style.css" />\n      </head>\n      <body>\n        <h1>Example</h1>\n      </body>\n    </html>`,
+      );
+      assertEquals([...response.headers], [[
+        "content-type",
+        "text/html; charset=utf-8",
+      ]]);
+    });
+  },
+});
+
+Deno.test({
   name: "static asset static_assets",
   async fn() {
     const staticAssets = await createWorker(
