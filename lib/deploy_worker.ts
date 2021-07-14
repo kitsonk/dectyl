@@ -300,6 +300,15 @@ export class DeployWorker {
       logger.debug("#handleMessage", data);
     }
     switch (data.type) {
+      case "abort": {
+        const { id } = data;
+        const request = this.#pendingRequests.get(id);
+        if (request) {
+          request.abort();
+          this.#pendingRequests.delete(id);
+        }
+        break;
+      }
       case "bodyChunk": {
         const { id, chunk, subType } = data;
         if (subType === "response") {
