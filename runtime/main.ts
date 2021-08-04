@@ -95,12 +95,32 @@ class DeployDenoNs {
       },
     };
 
+    async function readTextFile(path: URL | string) {
+      if (!(path instanceof URL)) {
+        path = new URL(path, import.meta.url);
+      }
+
+      const res = await fetch(path);
+      return await res.text();
+    }
+
+    async function readFile(path: URL | string) {
+      if (!(path instanceof URL)) {
+        path = new URL(path, import.meta.url);
+      }
+
+      const res = await fetch(path);
+      return new Uint8Array(await res.arrayBuffer());
+    }
+
     return Object.create({}, {
       "build": createReadOnly(build),
       "customInspect": createReadOnly(customInspect),
       "env": createReadOnly(env),
       "inspect": createReadOnly(inspect),
       "noColor": createValueDesc(false),
+      "readTextFile": createReadOnly(readTextFile),
+      "readFile": createReadOnly(readFile),
     });
   }
 

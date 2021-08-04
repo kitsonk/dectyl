@@ -32,6 +32,10 @@ declare global {
 
     export const noColor: false;
 
+    export function readTextFile(path: URL | string): Promise<string>;
+
+    export function readFile(path: URL | string): Promise<Uint8Array>;
+
     export interface InspectOptions {
       colors?: boolean;
       compact?: boolean;

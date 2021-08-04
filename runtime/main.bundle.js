@@ -1763,6 +1763,10 @@ class DectylConsole {
         this.error(err.stack);
     }
 }
+const importMeta = {
+    url: "file:///Users/sr/c/github.com/satyarohith/dectyl/runtime/main.ts",
+    main: import.meta.main
+};
 const INIT_PROPS = [
     "cache",
     "credentials",
@@ -1839,13 +1843,29 @@ class DeployDenoNs {
                 return Object.fromEntries(this.#env);
             }
         };
+        async function readTextFile(path) {
+            if (!(path instanceof URL)) {
+                path = new URL(path, importMeta.url);
+            }
+            const res = await fetch(path);
+            return await res.text();
+        }
+        async function readFile(path) {
+            if (!(path instanceof URL)) {
+                path = new URL(path, importMeta.url);
+            }
+            const res = await fetch(path);
+            return new Uint8Array(await res.arrayBuffer());
+        }
         return Object.create({
         }, {
             "build": createReadOnly(build),
             "customInspect": createReadOnly(customInspect),
             "env": createReadOnly(env),
             "inspect": createReadOnly(inspect),
-            "noColor": createValueDesc(false)
+            "noColor": createValueDesc(false),
+            "readTextFile": createReadOnly(readTextFile),
+            "readFile": createReadOnly(readFile)
         });
     }
     setEnv(obj) {

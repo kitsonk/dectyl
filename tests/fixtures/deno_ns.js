@@ -8,6 +8,8 @@ addEventListener("fetch", (event) => {
     customInspect: typeof Deno.customInspect,
     inspect: typeof Deno.inspect,
     keys: Object.keys(Deno),
+    readFile: typeof Deno.readFile,
+    readTextFile: typeof Deno.readTextFile,
   };
   const response = new Response(JSON.stringify(body), {
     headers: { "content-type": "application/json" },

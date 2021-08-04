@@ -16,6 +16,8 @@ Deno.test({
         customInspect: string;
         inspect: string;
         keys: string[];
+        readFile: typeof Deno.readFile;
+        readTextFile: typeof Deno.readTextFile;
       } = await response.json();
       assertEquals(actual.keys.sort(), [
         "build",
@@ -23,6 +25,8 @@ Deno.test({
         "env",
         "inspect",
         "noColor",
+        "readFile",
+        "readTextFile",
       ]);
       assertEquals(actual.build, {
         target: "x86_64-unknown-linux-gnu",
@@ -35,6 +39,8 @@ Deno.test({
       assertStrictEquals(actual.noColor, false);
       assertStrictEquals(actual.customInspect, "symbol");
       assertStrictEquals(actual.inspect, "function");
+      assertStrictEquals(actual.readFile, "function");
+      assertStrictEquals(actual.readTextFile, "function");
     });
   },
 });
