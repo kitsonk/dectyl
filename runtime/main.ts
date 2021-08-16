@@ -127,6 +127,18 @@ class HttpConn implements AsyncIterable<RequestEvent> {
   }
 }
 
+function createConn(
+  input: string,
+  requestInit: RequestInit,
+  respondWith: RespondWith,
+): Conn {
+  const request = new Request(input, requestInit);
+  const requestEvent = new RequestEvent(request, respondWith);
+  const conn = new Conn();
+  requestEventPromises.set(conn, Promise.resolve(requestEvent));
+  return conn;
+}
+
 class Conn {}
 
 const requestEventPromises = new WeakMap<Conn, Promise<RequestEvent>>();
@@ -171,25 +183,27 @@ class Listener implements AsyncIterable<Conn> {
       throw new Error("the listener is closed");
     }
 
-    const next = await this[Symbol.asyncIterator]().next();
-    if (next) {
-      return next;
-    } else {
-      this.#closed = true;
-      throw new Error("the listener is closed");
+    if (this.#requestStream.locked) {
+      throw new Error("Request Stream Locked");
     }
+
+    const reader = this.#requestStream.getReader();
+    const result = await reader.read();
+    reader.releaseLock();
+    if (result.value) {
+      return createConn(...result.value);
+    }
+    this.#closed = true;
+    throw new Error("the listener is closed");
   }
 
   close(): void {
     this.#closed = true;
   }
+
   async *[Symbol.asyncIterator](): AsyncIterableIterator<Conn> {
-    for await (const [input, requestInit, respondWith] of this.#requestStream) {
-      const request = new Request(input, requestInit);
-      const requestEvent = new RequestEvent(request, respondWith);
-      const conn = new Conn();
-      requestEventPromises.set(conn, Promise.resolve(requestEvent));
-      yield conn;
+    for await (const args of this.#requestStream) {
+      yield createConn(...args);
     }
   }
 }

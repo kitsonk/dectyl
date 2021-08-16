@@ -1854,6 +1854,13 @@ class HttpConn {
         this.#closed = true;
     }
 }
+function createConn(input, requestInit, respondWith3) {
+    const request2 = new Request(input, requestInit);
+    const requestEvent1 = new RequestEvent(request2, respondWith3);
+    const conn = new Conn();
+    requestEventPromises.set(conn, Promise.resolve(requestEvent1));
+    return conn;
+}
 class Conn {
 }
 const requestEventPromises = new WeakMap();
@@ -1882,24 +1889,24 @@ class Listener {
         if (this.#closed) {
             throw new Error("the listener is closed");
         }
-        const next = await this[Symbol.asyncIterator]().next();
-        if (next) {
-            return next;
-        } else {
-            this.#closed = true;
-            throw new Error("the listener is closed");
+        if (this.#requestStream.locked) {
+            throw new Error("Request Stream Locked");
         }
+        const reader = this.#requestStream.getReader();
+        const result = await reader.read();
+        reader.releaseLock();
+        if (result.value) {
+            return createConn(...result.value);
+        }
+        this.#closed = true;
+        throw new Error("the listener is closed");
     }
     close() {
         this.#closed = true;
     }
     async *[Symbol.asyncIterator]() {
-        for await (const [input, requestInit, respondWith3] of this.#requestStream){
-            const request2 = new Request(input, requestInit);
-            const requestEvent1 = new RequestEvent(request2, respondWith3);
-            const conn = new Conn();
-            requestEventPromises.set(conn, Promise.resolve(requestEvent1));
-            yield conn;
+        for await (const args of this.#requestStream){
+            yield createConn(...args);
         }
     }
 }
