@@ -1789,10 +1789,10 @@ class FetchEvent extends Event {
     get request() {
         return this.#request;
     }
-    constructor(request, respondWith){
+    constructor(request, respondWith2){
         super("fetch");
         this.#request = request;
-        this.#respondWith = respondWith;
+        this.#respondWith = respondWith2;
     }
     respondWith(response) {
         if (this.#responded === true) {
@@ -1810,6 +1810,114 @@ class FetchEvent extends Event {
 Object.assign(globalThis, {
     FetchEvent
 });
+class RequestEvent {
+    #request;
+    #respondWith;
+    get request() {
+        return this.#request;
+    }
+    constructor(request1, respondWith1){
+        this.#request = request1;
+        this.#respondWith = respondWith1;
+    }
+    respondWith = (r)=>{
+        return this.#respondWith(r);
+    };
+}
+let globalRid = 0;
+class HttpConn {
+    #closed = false;
+    #requestEvent;
+    #rid = globalRid++;
+    get rid() {
+        return this.#rid;
+    }
+    constructor(requestEvent){
+        this.#requestEvent = requestEvent;
+    }
+    async nextRequest() {
+        if (this.#closed) {
+            return null;
+        }
+        const next = await this[Symbol.asyncIterator]().next();
+        return next.value ?? null;
+    }
+    close() {
+        this.#closed = true;
+    }
+    async *[Symbol.asyncIterator]() {
+        if (this.#closed) {
+            return;
+        }
+        const requestEvent1 = await this.#requestEvent;
+        yield requestEvent1;
+        this.#closed = true;
+    }
+}
+class Conn {
+}
+const requestEventPromises = new WeakMap();
+function serveHttp(conn) {
+    const promise = requestEventPromises.get(conn);
+    assert(promise);
+    return new HttpConn(promise);
+}
+let globalListener;
+class Listener {
+    #addr;
+    #closed = false;
+    #requestStream;
+    #rid = globalRid++;
+    get addr() {
+        return this.#addr;
+    }
+    get rid() {
+        return this.#rid;
+    }
+    constructor(addr, requestStream){
+        this.#addr = addr;
+        this.#requestStream = requestStream;
+    }
+    async accept() {
+        if (this.#closed) {
+            throw new Error("the listener is closed");
+        }
+        const next = await this[Symbol.asyncIterator]().next();
+        if (next) {
+            return next;
+        } else {
+            this.#closed = true;
+            throw new Error("the listener is closed");
+        }
+    }
+    close() {
+        this.#closed = true;
+    }
+    async *[Symbol.asyncIterator]() {
+        for await (const [input, requestInit, respondWith3] of this.#requestStream){
+            const request2 = new Request(input, requestInit);
+            const requestEvent1 = new RequestEvent(request2, respondWith3);
+            const conn = new Conn();
+            requestEventPromises.set(conn, Promise.resolve(requestEvent1));
+            yield conn;
+        }
+    }
+}
+let globalRequestStream;
+function listen({ port , hostname ="127.0.0.1"  }) {
+    if (globalListener) {
+        throw new TypeError("dectyl currently only supports on listener per runtime");
+    }
+    if (port === 0) {
+        port = 80;
+    }
+    assert(globalRequestStream);
+    return globalListener = new Listener({
+        port,
+        hostname,
+        transport: "tcp"
+    }, globalRequestStream);
+}
 class DeployDenoNs {
     #env = new Map([
         [
@@ -1845,7 +1953,9 @@ class DeployDenoNs {
             "customInspect": createReadOnly(customInspect),
             "env": createReadOnly(env),
             "inspect": createReadOnly(inspect),
-            "noColor": createValueDesc(false)
+            "listen": createReadOnly(listen),
+            "noColor": createValueDesc(false),
+            "serveHttp": createReadOnly(serveHttp)
         });
     }
     setEnv(obj) {
@@ -1862,6 +1972,7 @@ class DeployWorkerHost {
     #hasFetchHandler = false;
     #pendingFetches = new Map();
     #postMessage = globalThis.postMessage.bind(globalThis);
+    #requestEventController;
     #responseBodyControllers = new Map();
     #signalControllers = new Map();
     #signalId = 1;
@@ -1948,8 +2059,17 @@ class DeployWorkerHost {
                 {
                     const { id , init  } = data;
                     const [input, requestInit] = this.#parseInit(id, init);
-                    this.#target.dispatchEvent(new FetchEvent(new Request(input, requestInit), (response)=>this.#postResponse(id, response)
-                    ));
+                    if (globalListener) {
+                        this.#requestEventController.enqueue([
+                            input,
+                            requestInit,
+                            (response)=>this.#postResponse(id, response)
+                            , 
+                        ]);
+                    } else {
+                        this.#target.dispatchEvent(new FetchEvent(new Request(input, requestInit), (response)=>this.#postResponse(id, response)
+                        ));
+                    }
                     break;
                 }
             case "respond":
@@ -2129,6 +2249,11 @@ class DeployWorkerHost {
     constructor(){
         addEventListener("message", (evt)=>{
             this.#handleMessage(evt);
+        });
+        globalRequestStream = new ReadableStream({
+            start: (controller)=>{
+                this.#requestEventController = controller;
+            }
         });
         const console = new DectylConsole(this.#print.bind(this));
         const target = this.#target = new EventTarget();

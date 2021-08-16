@@ -27,9 +27,11 @@ enum LogLevel {
   Error = 3,
 }
 
+type RespondWith = (response: Response | Promise<Response>) => Promise<void>;
+
 class FetchEvent extends Event {
   #request: Request;
-  #respondWith: (response: Response | Promise<Response>) => Promise<void>;
+  #respondWith: RespondWith;
   #responded = false;
 
   get request() {
@@ -42,7 +44,7 @@ class FetchEvent extends Event {
    */
   constructor(
     request: Request,
-    respondWith: (response: Response | Promise<Response>) => Promise<void>,
+    respondWith: RespondWith,
   ) {
     super("fetch");
     this.#request = request;
@@ -67,6 +69,150 @@ class FetchEvent extends Event {
 Object.assign(globalThis, {
   FetchEvent,
 });
+
+class RequestEvent {
+  #request: Request;
+  #respondWith: RespondWith;
+
+  get request(): Request {
+    return this.#request;
+  }
+
+  constructor(
+    request: Request,
+    respondWith: RespondWith,
+  ) {
+    this.#request = request;
+    this.#respondWith = respondWith;
+  }
+
+  // this needs to be lexically bound to support destructuring
+  respondWith = (r: Response | Promise<Response>): Promise<void> => {
+    return this.#respondWith(r);
+  };
+}
+
+let globalRid = 0;
+
+class HttpConn implements AsyncIterable<RequestEvent> {
+  #closed = false;
+  #requestEvent: Promise<RequestEvent>;
+  #rid = globalRid++;
+
+  get rid(): number {
+    return this.#rid;
+  }
+
+  constructor(requestEvent: Promise<RequestEvent>) {
+    this.#requestEvent = requestEvent;
+  }
+
+  async nextRequest(): Promise<RequestEvent | null> {
+    if (this.#closed) {
+      return null;
+    }
+    const next = await this[Symbol.asyncIterator]().next();
+    return next.value ?? null;
+  }
+  close(): void {
+    this.#closed = true;
+  }
+  async *[Symbol.asyncIterator](): AsyncIterator<RequestEvent> {
+    if (this.#closed) {
+      return;
+    }
+    const requestEvent = await this.#requestEvent;
+    yield requestEvent;
+    this.#closed = true;
+  }
+}
+
+class Conn {}
+
+const requestEventPromises = new WeakMap<Conn, Promise<RequestEvent>>();
+
+function serveHttp(conn: Conn) {
+  const promise = requestEventPromises.get(conn);
+  assert(promise);
+  return new HttpConn(promise);
+}
+
+export interface NetAddr {
+  transport: "tcp";
+  hostname: string;
+  port: number;
+}
+
+let globalListener: Listener | undefined;
+
+class Listener implements AsyncIterable<Conn> {
+  #addr: NetAddr;
+  #closed = false;
+  #requestStream: ReadableStream<[string, RequestInit, RespondWith]>;
+  #rid = globalRid++;
+
+  get addr(): NetAddr {
+    return this.#addr;
+  }
+  get rid(): number {
+    return this.#rid;
+  }
+
+  constructor(
+    addr: NetAddr,
+    requestStream: ReadableStream<[string, RequestInit, RespondWith]>,
+  ) {
+    this.#addr = addr;
+    this.#requestStream = requestStream;
+  }
+
+  async accept(): Promise<Conn> {
+    if (this.#closed) {
+      throw new Error("the listener is closed");
+    }
+
+    const next = await this[Symbol.asyncIterator]().next();
+    if (next) {
+      return next;
+    } else {
+      this.#closed = true;
+      throw new Error("the listener is closed");
+    }
+  }
+
+  close(): void {
+    this.#closed = true;
+  }
+  async *[Symbol.asyncIterator](): AsyncIterableIterator<Conn> {
+    for await (const [input, requestInit, respondWith] of this.#requestStream) {
+      const request = new Request(input, requestInit);
+      const requestEvent = new RequestEvent(request, respondWith);
+      const conn = new Conn();
+      requestEventPromises.set(conn, Promise.resolve(requestEvent));
+      yield conn;
+    }
+  }
+}
+
+let globalRequestStream: ReadableStream<[string, RequestInit, RespondWith]>;
+
+function listen(
+  { port, hostname = "127.0.0.1" }: { port: number; hostname?: string },
+): Listener {
+  if (globalListener) {
+    throw new TypeError(
+      "dectyl currently only supports on listener per runtime",
+    );
+  }
+  if (port === 0) {
+    port = 80;
+  }
+  assert(globalRequestStream);
+  return globalListener = new Listener(
+    { port, hostname, transport: "tcp" },
+    globalRequestStream,
+  );
+}
 
 class DeployDenoNs {
   #env = new Map([["DENO_DEPLOYMENT_ID", "00000000"]]);
@@ -100,7 +246,9 @@ class DeployDenoNs {
       "customInspect": createReadOnly(customInspect),
       "env": createReadOnly(env),
       "inspect": createReadOnly(inspect),
+      "listen": createReadOnly(listen),
       "noColor": createValueDesc(false),
+      "serveHttp": createReadOnly(serveHttp),
     });
   }
 
@@ -124,6 +272,9 @@ class DeployWorkerHost {
   #postMessage: (message: DectylMessage) => void = globalThis.postMessage.bind(
     globalThis,
   );
+  #requestEventController!: ReadableStreamDefaultController<
+    [string, RequestInit, RespondWith]
+  >;
   #responseBodyControllers = new Map<
     number,
     ReadableStreamDefaultController<Uint8Array>
@@ -204,12 +355,20 @@ class DeployWorkerHost {
       case "fetch": {
         const { id, init } = data;
         const [input, requestInit] = this.#parseInit(id, init);
-        this.#target.dispatchEvent(
-          new FetchEvent(
-            new Request(input, requestInit),
+        if (globalListener) {
+          this.#requestEventController.enqueue([
+            input,
+            requestInit,
             (response) => this.#postResponse(id, response),
-          ),
-        );
+          ]);
+        } else {
+          this.#target.dispatchEvent(
+            new FetchEvent(
+              new Request(input, requestInit),
+              (response) => this.#postResponse(id, response),
+            ),
+          );
+        }
         break;
       }
       case "respond": {
@@ -393,6 +552,12 @@ class DeployWorkerHost {
   constructor() {
     addEventListener("message", (evt: MessageEvent) => {
       this.#handleMessage(evt);
+    });
+
+    globalRequestStream = new ReadableStream({
+      start: (controller) => {
+        this.#requestEventController = controller;
+      },
     });
 
     const console = new DectylConsole(this.#print.bind(this));

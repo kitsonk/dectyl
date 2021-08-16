@@ -45,5 +45,39 @@ declare global {
     }
 
     export function inspect(value: unknown, options?: InspectOptions): string;
+
+    export interface Conn {
+      readonly localAddr: Addr;
+      readonly remoteAddr: Addr;
+      readonly rid: number;
+
+      close(): void;
+      closeWrite(): Promise<void>;
+      read(p: Uint8Array): Promise<number | null>;
+      write(p: Uint8Array): Promise<number>;
+    }
+
+    export interface HttpConn extends AsyncIterable<RequestEvent> {
+      readonly rid: number;
+
+      nextRequest(): Promise<RequestEvent | null>;
+      close(): void;
+    }
+
+    export interface Listener extends AsyncIterable<Conn> {
+      readonly addr: Addr;
+      readonly rid: number;
+      accept(): Promise<Conn>;
+      close(): void;
+      [Symbol.asyncIterator](): AsyncIterableIterator<Conn>;
+    }
+
+    export interface RequestEvent {
+      readonly request: Request;
+      respondWith(r: Response | Promise<Response>): Promise<void>;
+    }
+
+    export function listen(options: unknown): Listener;
+    export function serveHttp(conn: Conn): HttpConn;
   }
 }

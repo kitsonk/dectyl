@@ -22,7 +22,9 @@ Deno.test({
         "customInspect",
         "env",
         "inspect",
+        "listen",
         "noColor",
+        "serveHttp",
       ]);
       assertEquals(actual.build, {
         target: "x86_64-unknown-linux-gnu",
