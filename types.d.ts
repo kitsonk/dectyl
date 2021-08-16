@@ -18,6 +18,10 @@ export interface DeployOptions extends DeployWorkerOptions {
    * application.  You may want to use `--no-check` and `--config` to change
    * these behaviors. */
   bundle?: boolean;
+  /** A fully qualified path to what should be used for the `cwd` overriding
+   * the default `Deno.cwd()`. When local file URLs are relative the value of
+   * the `cwd` is used to fully resolve the path. */
+  cwd?: string;
   /** The host to use when sending requests into the worker.  Defaults to
    * `localhost`. */
   host?: string;
@@ -65,6 +69,8 @@ export type DectylMessage =
   | InternalLogMessage
   | LoadedMessage
   | LogMessage
+  | ReadFileMessage
+  | ReadFileResponseMessage
   | ReadyMessage
   | RespondErrorMessage
   | RespondMessage;
@@ -150,6 +156,23 @@ export interface LogMessage {
   type: "log";
   message: string;
   error: boolean;
+}
+
+export interface ReadFileMessage {
+  type: "readFile";
+  id: number;
+  path: string;
+}
+
+export interface ReadFileResponseMessage {
+  type: "readFileResponse";
+  id: number;
+  error?: {
+    message: string;
+    name: string;
+    stack?: string;
+  };
+  value?: Uint8Array;
 }
 
 export interface ReadyMessage {

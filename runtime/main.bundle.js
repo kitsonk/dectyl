@@ -1925,7 +1925,7 @@ class DeployDenoNs {
             "00000000"
         ]
     ]);
-    create() {
+    create(host) {
         const build = {
             target: "x86_64-unknown-linux-gnu",
             arch: "x86_64",
@@ -1947,6 +1947,21 @@ class DeployDenoNs {
                 return Object.fromEntries(this.#env);
             }
         };
+        async function readFile(path) {
+            if (path instanceof URL && path.protocol !== "file:") {
+                const res = await host.fetch(path);
+                return new Uint8Array(await res.arrayBuffer());
+            }
+            return host.readFile(String(path));
+        }
+        const decoder = new TextDecoder();
+        async function readTextFile(path) {
+            if (path instanceof URL) {
+                const res = await host.fetch(path);
+                return res.text();
+            }
+            return decoder.decode(await host.readFile(path));
+        }
         return Object.create({
         }, {
             "build": createReadOnly(build),
@@ -1955,6 +1970,8 @@ class DeployDenoNs {
             "inspect": createReadOnly(inspect),
             "listen": createReadOnly(listen),
             "noColor": createValueDesc(false),
+            "readFile": createReadOnly(readFile),
+            "readTextFile": createReadOnly(readTextFile),
             "serveHttp": createReadOnly(serveHttp)
         });
     }
@@ -1971,7 +1988,9 @@ class DeployWorkerHost {
     #fetchId = 1;
     #hasFetchHandler = false;
     #pendingFetches = new Map();
+    #pendingReadFiles = new Map();
     #postMessage = globalThis.postMessage.bind(globalThis);
+    #readFileId = 1;
     #requestEventController;
     #responseBodyControllers = new Map();
     #signalControllers = new Map();
@@ -2069,6 +2088,23 @@ class DeployWorkerHost {
                     } else {
                         this.#target.dispatchEvent(new FetchEvent(new Request(input, requestInit), (response)=>this.#postResponse(id, response)
                         ));
+                    }
+                    break;
+                }
+            case "readFileResponse":
+                {
+                    const { id , error , value  } = data;
+                    const deferred = this.#pendingReadFiles.get(id);
+                    assert(deferred);
+                    this.#pendingReadFiles.delete(id);
+                    if (error) {
+                        const err = new Error(error.message);
+                        err.name = error.name;
+                        err.stack = error.stack;
+                        deferred.reject(err);
+                    } else {
+                        assert(value);
+                        deferred.resolve(value);
                     }
                     break;
                 }
@@ -2261,11 +2297,22 @@ class DeployWorkerHost {
         Object.defineProperties(globalThis, {
             "addEventListener": createValueDesc(target.addEventListener.bind(target)),
             "console": createNonEnumDesc(console),
-            "Deno": createReadOnly(denoNs.create()),
+            "Deno": createReadOnly(denoNs.create(this)),
             "dispatchEvent": createValueDesc(target.dispatchEvent.bind(target)),
             "fetch": createValueDesc(this.fetch.bind(this)),
             "removeEventListener": createValueDesc(target.removeEventListener.bind(target))
         });
+    }
+    readFile(path) {
+        const id = this.#readFileId++;
+        const deferred = new Deferred();
+        this.#pendingReadFiles.set(id, deferred);
+        this.#postMessage({
+            type: "readFile",
+            id,
+            path
+        });
+        return deferred.promise;
     }
     fetch(input, requestInit) {
         if (!this.#hasFetchHandler) {

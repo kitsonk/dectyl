@@ -10,11 +10,15 @@ Deno.test({
     await worker.run(async () => {
       const [response] = await worker.fetch("/");
       const actual: {
-        env: Record<string, string>;
-        noColor: boolean;
         build: typeof Deno.build;
         customInspect: string;
+        env: Record<string, string>;
         inspect: string;
+        listen: string;
+        noColor: boolean;
+        readFile: string;
+        readTextFile: string;
+        serveHttp: string;
         keys: string[];
       } = await response.json();
       assertEquals(actual.keys.sort(), [
@@ -24,6 +28,8 @@ Deno.test({
         "inspect",
         "listen",
         "noColor",
+        "readFile",
+        "readTextFile",
         "serveHttp",
       ]);
       assertEquals(actual.build, {
@@ -33,10 +39,14 @@ Deno.test({
         vendor: "unknown",
         env: "gnu",
       });
-      assertEquals(actual.env, { DENO_DEPLOYMENT_ID: "00000000" });
-      assertStrictEquals(actual.noColor, false);
       assertStrictEquals(actual.customInspect, "symbol");
+      assertEquals(actual.env, { DENO_DEPLOYMENT_ID: "00000000" });
       assertStrictEquals(actual.inspect, "function");
+      assertStrictEquals(actual.listen, "function");
+      assertStrictEquals(actual.noColor, false);
+      assertStrictEquals(actual.readFile, "function");
+      assertStrictEquals(actual.readTextFile, "function");
+      assertStrictEquals(actual.serveHttp, "function");
     });
   },
 });

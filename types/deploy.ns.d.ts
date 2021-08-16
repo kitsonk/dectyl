@@ -2,6 +2,8 @@
 
 export {};
 
+Deno.readFile();
+
 declare global {
   interface ImportMeta {
     url: string;
@@ -79,5 +81,18 @@ declare global {
 
     export function listen(options: unknown): Listener;
     export function serveHttp(conn: Conn): HttpConn;
+
+    interface ReadFileOptions {
+      signal?: AbortSignal;
+    }
+
+    export function readFile(
+      path: string | URL,
+      options?: ReadFileOptions,
+    ): Promise<Uint8Array>;
+    export function readTextFile(
+      path: string | URL,
+      options?: ReadFileOptions,
+    ): Promise<string>;
   }
 }

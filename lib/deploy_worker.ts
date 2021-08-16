@@ -99,7 +99,8 @@ type DeployWorkerState =
   | "closed";
 
 interface DectylWorker extends Worker {
-  postMessage(msg: DectylMessage): void;
+  postMessage(msg: DectylMessage, transfer?: Transferable[]): void;
+  postMessage(msg: DectylMessage, options?: StructuredSerializeOptions): void;
 }
 
 class RequestEvent implements Deno.RequestEvent {
@@ -252,6 +253,7 @@ export class DeployWorker {
     ReadableStreamDefaultController<Uint8Array>
   >();
   #bundle: boolean;
+  #cwd: string;
   #fetchHandler?: FetchHandler | FetchHandler[];
   #fetchId = 1;
   #logs: ReadableStream<string>;
@@ -370,6 +372,11 @@ export class DeployWorker {
           `${data.error ? "error: " : ""}${data.message}`,
         );
         break;
+      case "readFile": {
+        const { id, path } = data;
+        this.#handleReadFile(id, path);
+        break;
+      }
       case "ready":
         assert(this.#state === "loading");
         this.#setup();
@@ -407,11 +414,38 @@ export class DeployWorker {
     }
   }
 
+  async #handleReadFile(id: number, path: string) {
+    try {
+      const url = new URL(path, toFileUrl(`${this.#cwd}/`));
+      const value = await Deno.readFile(url);
+      this.#worker.postMessage({
+        type: "readFileResponse",
+        id,
+        value,
+      });
+    } catch (err) {
+      if (err instanceof Error) {
+        const { message, name, stack } = err;
+        this.#worker.postMessage({
+          type: "readFileResponse",
+          id,
+          error: { message, name, stack },
+        });
+      } else {
+        this.#worker.postMessage({
+          type: "readFileResponse",
+          id,
+          error: { message: String(err), name: "Error" },
+        });
+      }
+    }
+  }
+
   async #setup() {
     logger.debug("#setup");
     let specifier =
       (typeof this.#specifier === "string"
-        ? new URL(this.#specifier, toFileUrl(`${Deno.cwd()}/`))
+        ? new URL(this.#specifier, toFileUrl(`${this.#cwd}/`))
         : this.#specifier).toString();
     if (this.#bundle) {
       const { diagnostics, files } = await Deno.emit(this.#specifier, {
@@ -477,6 +511,7 @@ export class DeployWorker {
     specifier: string | URL,
     {
       bundle = true,
+      cwd = Deno.cwd(),
       fetchHandler,
       host = "localhost",
       name = createName(),
@@ -499,6 +534,7 @@ export class DeployWorker {
       },
     });
     this.#specifier = specifier;
+    this.#cwd = cwd;
     this.#base = new URL(`https://${host}`);
     this.#bundle = bundle;
     this.#name = name;

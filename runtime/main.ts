@@ -217,7 +217,7 @@ function listen(
 class DeployDenoNs {
   #env = new Map([["DENO_DEPLOYMENT_ID", "00000000"]]);
 
-  create(): typeof Deno {
+  create(host: DeployWorkerHost): typeof Deno {
     const build = {
       target: "x86_64-unknown-linux-gnu",
       arch: "x86_64",
@@ -241,6 +241,24 @@ class DeployDenoNs {
       },
     };
 
+    async function readFile(path: URL | string): Promise<Uint8Array> {
+      if (path instanceof URL && path.protocol !== "file:") {
+        const res = await host.fetch(path);
+        return new Uint8Array(await res.arrayBuffer());
+      }
+      return host.readFile(String(path));
+    }
+
+    const decoder = new TextDecoder();
+
+    async function readTextFile(path: URL | string) {
+      if (path instanceof URL) {
+        const res = await host.fetch(path);
+        return res.text();
+      }
+      return decoder.decode(await host.readFile(path));
+    }
+
     return Object.create({}, {
       "build": createReadOnly(build),
       "customInspect": createReadOnly(customInspect),
@@ -248,6 +266,8 @@ class DeployDenoNs {
       "inspect": createReadOnly(inspect),
       "listen": createReadOnly(listen),
       "noColor": createValueDesc(false),
+      "readFile": createReadOnly(readFile),
+      "readTextFile": createReadOnly(readTextFile),
       "serveHttp": createReadOnly(serveHttp),
     });
   }
@@ -269,9 +289,14 @@ class DeployWorkerHost {
   #fetchId = 1;
   #hasFetchHandler = false;
   #pendingFetches = new Map<number, Deferred<Response>>();
-  #postMessage: (message: DectylMessage) => void = globalThis.postMessage.bind(
+  #pendingReadFiles = new Map<number, Deferred<Uint8Array>>();
+  #postMessage: (
+    message: DectylMessage,
+    options?: StructuredSerializeOptions,
+  ) => void = globalThis.postMessage.bind(
     globalThis,
   );
+  #readFileId = 1;
   #requestEventController!: ReadableStreamDefaultController<
     [string, RequestInit, RespondWith]
   >;
@@ -368,6 +393,22 @@ class DeployWorkerHost {
               (response) => this.#postResponse(id, response),
             ),
           );
+        }
+        break;
+      }
+      case "readFileResponse": {
+        const { id, error, value } = data;
+        const deferred = this.#pendingReadFiles.get(id);
+        assert(deferred);
+        this.#pendingReadFiles.delete(id);
+        if (error) {
+          const err = new Error(error.message);
+          err.name = error.name;
+          err.stack = error.stack;
+          deferred.reject(err);
+        } else {
+          assert(value);
+          deferred.resolve(value);
         }
         break;
       }
@@ -569,7 +610,7 @@ class DeployWorkerHost {
         target.addEventListener.bind(target),
       ),
       "console": createNonEnumDesc(console),
-      "Deno": createReadOnly(denoNs.create()),
+      "Deno": createReadOnly(denoNs.create(this)),
       "dispatchEvent": createValueDesc(
         target.dispatchEvent.bind(target),
       ),
@@ -578,6 +619,14 @@ class DeployWorkerHost {
         target.removeEventListener.bind(target),
       ),
     });
+  }
+
+  readFile(path: string): Promise<Uint8Array> {
+    const id = this.#readFileId++;
+    const deferred = new Deferred<Uint8Array>();
+    this.#pendingReadFiles.set(id, deferred);
+    this.#postMessage({ type: "readFile", id, path });
+    return deferred.promise;
   }
 
   fetch(
