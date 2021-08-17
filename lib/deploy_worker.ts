@@ -98,6 +98,10 @@ type DeployWorkerState =
   | "closing"
   | "closed";
 
+interface StructuredSerializeOptions {
+  transfer?: Transferable[];
+}
+
 interface DectylWorker extends Worker {
   postMessage(msg: DectylMessage, transfer?: Transferable[]): void;
   postMessage(msg: DectylMessage, options?: StructuredSerializeOptions): void;
