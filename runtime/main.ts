@@ -96,7 +96,7 @@ let globalRid = 0;
 
 class HttpConn implements AsyncIterable<RequestEvent> {
   #closed = false;
-  #requestEvent: Promise<RequestEvent>;
+  #requestEvent?: Promise<RequestEvent>;
   #rid = globalRid++;
 
   get rid(): number {
@@ -107,23 +107,25 @@ class HttpConn implements AsyncIterable<RequestEvent> {
     this.#requestEvent = requestEvent;
   }
 
-  async nextRequest(): Promise<RequestEvent | null> {
-    if (this.#closed) {
-      return null;
+  nextRequest(): Promise<RequestEvent | null> {
+    if (this.#closed || !this.#requestEvent) {
+      return Promise.resolve(null);
     }
-    const next = await this[Symbol.asyncIterator]().next();
-    return next.value ?? null;
+    const requestEvent = this.#requestEvent;
+    this.#requestEvent = undefined;
+    return requestEvent;
   }
   close(): void {
     this.#closed = true;
   }
   async *[Symbol.asyncIterator](): AsyncIterator<RequestEvent> {
-    if (this.#closed) {
+    if (this.#closed || !this.#requestEvent) {
       return;
     }
-    const requestEvent = await this.#requestEvent;
-    yield requestEvent;
+    const requestEvent = this.#requestEvent;
+    this.#requestEvent = undefined;
     this.#closed = true;
+    yield requestEvent;
   }
 }
 

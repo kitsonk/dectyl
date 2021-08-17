@@ -1835,23 +1835,25 @@ class HttpConn {
     constructor(requestEvent){
         this.#requestEvent = requestEvent;
     }
-    async nextRequest() {
-        if (this.#closed) {
-            return null;
+    nextRequest() {
+        if (this.#closed || !this.#requestEvent) {
+            return Promise.resolve(null);
         }
-        const next = await this[Symbol.asyncIterator]().next();
-        return next.value ?? null;
+        const requestEvent1 = this.#requestEvent;
+        this.#requestEvent = undefined;
+        return requestEvent1;
     }
     close() {
         this.#closed = true;
     }
     async *[Symbol.asyncIterator]() {
-        if (this.#closed) {
+        if (this.#closed || !this.#requestEvent) {
             return;
         }
-        const requestEvent1 = await this.#requestEvent;
-        yield requestEvent1;
+        const requestEvent1 = this.#requestEvent;
+        this.#requestEvent = undefined;
         this.#closed = true;
+        yield requestEvent1;
     }
 }
 function createConn(input, requestInit, respondWith3, localAddr, remoteAddr) {
