@@ -1854,14 +1854,42 @@ class HttpConn {
         this.#closed = true;
     }
 }
-function createConn(input, requestInit, respondWith3) {
+function createConn(input, requestInit, respondWith3, localAddr, remoteAddr) {
     const request2 = new Request(input, requestInit);
     const requestEvent1 = new RequestEvent(request2, respondWith3);
-    const conn = new Conn();
+    const conn = new Conn(localAddr, remoteAddr);
     requestEventPromises.set(conn, Promise.resolve(requestEvent1));
     return conn;
 }
 class Conn {
+    #localAddr;
+    #remoteAddr;
+    #rid = globalRid++;
+    get localAddr() {
+        return this.#localAddr;
+    }
+    get remoteAddr() {
+        return this.#remoteAddr;
+    }
+    get rid() {
+        return this.#rid;
+    }
+    constructor(localAddr, remoteAddr){
+        this.#localAddr = localAddr;
+        this.#remoteAddr = remoteAddr;
+    }
+    close() {
+        throw new Error("Conn.close() is not supported.");
+    }
+    closeWrite() {
+        throw new Error("Conn.closeWrite() is not supported.");
+    }
+    read() {
+        throw new Error("Conn.read() is not supported.");
+    }
+    write() {
+        throw new Error("Conn.write() is not supported.");
+    }
 }
 const requestEventPromises = new WeakMap();
 function serveHttp(conn) {
@@ -1994,6 +2022,11 @@ class DeployWorkerHost {
     #fetch = globalThis.fetch.bind(globalThis);
     #fetchId = 1;
     #hasFetchHandler = false;
+    #localAddr = {
+        hostname: "127.0.0.1",
+        port: 80,
+        transport: "tcp"
+    };
     #pendingFetches = new Map();
     #pendingReadFiles = new Map();
     #postMessage = globalThis.postMessage.bind(globalThis);
@@ -2065,11 +2098,12 @@ class DeployWorkerHost {
                 }
             case "init":
                 {
-                    const { env , hasFetchHandler =false  } = data.init;
+                    const { env , localAddr: localAddr1 , hasFetchHandler =false  } = data.init;
                     if (env) {
                         this.#denoNs.setEnv(env);
                     }
                     this.#hasFetchHandler = hasFetchHandler;
+                    this.#localAddr = localAddr1;
                     this.#postMessage({
                         type: "ready"
                     });
@@ -2083,14 +2117,17 @@ class DeployWorkerHost {
                 break;
             case "fetch":
                 {
-                    const { id , init  } = data;
+                    const { id , init , remoteAddr: remoteAddr1  } = data;
+                    assert(remoteAddr1);
                     const [input, requestInit] = this.#parseInit(id, init);
                     if (globalListener) {
                         this.#requestEventController.enqueue([
                             input,
                             requestInit,
                             (response)=>this.#postResponse(id, response)
-                            , 
+                            ,
+                            this.#localAddr,
+                            remoteAddr1, 
                         ]);
                     } else {
                         this.#target.dispatchEvent(new FetchEvent(new Request(input, requestInit), (response)=>this.#postResponse(id, response)

@@ -131,15 +131,51 @@ function createConn(
   input: string,
   requestInit: RequestInit,
   respondWith: RespondWith,
+  localAddr: Deno.NetAddr,
+  remoteAddr: Deno.NetAddr,
 ): Conn {
   const request = new Request(input, requestInit);
   const requestEvent = new RequestEvent(request, respondWith);
-  const conn = new Conn();
+  const conn = new Conn(localAddr, remoteAddr);
   requestEventPromises.set(conn, Promise.resolve(requestEvent));
   return conn;
 }
 
-class Conn {}
+class Conn {
+  #localAddr: Deno.NetAddr;
+  #remoteAddr: Deno.NetAddr;
+  #rid = globalRid++;
+
+  get localAddr() {
+    return this.#localAddr;
+  }
+
+  get remoteAddr() {
+    return this.#remoteAddr;
+  }
+
+  get rid() {
+    return this.#rid;
+  }
+
+  constructor(localAddr: Deno.NetAddr, remoteAddr: Deno.NetAddr) {
+    this.#localAddr = localAddr;
+    this.#remoteAddr = remoteAddr;
+  }
+
+  close(): never {
+    throw new Error("Conn.close() is not supported.");
+  }
+  closeWrite(): never {
+    throw new Error("Conn.closeWrite() is not supported.");
+  }
+  read(): never {
+    throw new Error("Conn.read() is not supported.");
+  }
+  write(): never {
+    throw new Error("Conn.write() is not supported.");
+  }
+}
 
 const requestEventPromises = new WeakMap<Conn, Promise<RequestEvent>>();
 
@@ -160,7 +196,9 @@ let globalListener: Listener | undefined;
 class Listener implements AsyncIterable<Conn> {
   #addr: NetAddr;
   #closed = false;
-  #requestStream: ReadableStream<[string, RequestInit, RespondWith]>;
+  #requestStream: ReadableStream<
+    [string, RequestInit, RespondWith, Deno.NetAddr, Deno.NetAddr]
+  >;
   #rid = globalRid++;
 
   get addr(): NetAddr {
@@ -172,7 +210,9 @@ class Listener implements AsyncIterable<Conn> {
 
   constructor(
     addr: NetAddr,
-    requestStream: ReadableStream<[string, RequestInit, RespondWith]>,
+    requestStream: ReadableStream<
+      [string, RequestInit, RespondWith, Deno.NetAddr, Deno.NetAddr]
+    >,
   ) {
     this.#addr = addr;
     this.#requestStream = requestStream;
@@ -208,7 +248,9 @@ class Listener implements AsyncIterable<Conn> {
   }
 }
 
-let globalRequestStream: ReadableStream<[string, RequestInit, RespondWith]>;
+let globalRequestStream: ReadableStream<
+  [string, RequestInit, RespondWith, Deno.NetAddr, Deno.NetAddr]
+>;
 
 function listen(
   { port, hostname = "127.0.0.1" }: { port: number; hostname?: string },
@@ -302,6 +344,11 @@ class DeployWorkerHost {
   #fetch = globalThis.fetch.bind(globalThis);
   #fetchId = 1;
   #hasFetchHandler = false;
+  #localAddr: Deno.NetAddr = {
+    hostname: "127.0.0.1",
+    port: 80,
+    transport: "tcp",
+  };
   #pendingFetches = new Map<number, Deferred<Response>>();
   #pendingReadFiles = new Map<number, Deferred<Uint8Array>>();
   #postMessage: (
@@ -312,7 +359,7 @@ class DeployWorkerHost {
   );
   #readFileId = 1;
   #requestEventController!: ReadableStreamDefaultController<
-    [string, RequestInit, RespondWith]
+    [string, RequestInit, RespondWith, Deno.NetAddr, Deno.NetAddr]
   >;
   #responseBodyControllers = new Map<
     number,
@@ -379,11 +426,12 @@ class DeployWorkerHost {
         break;
       }
       case "init": {
-        const { env, hasFetchHandler = false } = data.init;
+        const { env, localAddr, hasFetchHandler = false } = data.init;
         if (env) {
           this.#denoNs.setEnv(env);
         }
         this.#hasFetchHandler = hasFetchHandler;
+        this.#localAddr = localAddr;
         this.#postMessage({ type: "ready" });
         break;
       }
@@ -392,13 +440,16 @@ class DeployWorkerHost {
         this.#postMessage({ type: "loaded" });
         break;
       case "fetch": {
-        const { id, init } = data;
+        const { id, init, remoteAddr } = data;
+        assert(remoteAddr);
         const [input, requestInit] = this.#parseInit(id, init);
         if (globalListener) {
           this.#requestEventController.enqueue([
             input,
             requestInit,
             (response) => this.#postResponse(id, response),
+            this.#localAddr,
+            remoteAddr,
           ]);
         } else {
           this.#target.dispatchEvent(

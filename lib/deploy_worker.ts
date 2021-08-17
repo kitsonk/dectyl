@@ -514,6 +514,7 @@ export class DeployWorker {
       cwd = Deno.cwd(),
       fetchHandler,
       host = "localhost",
+      localAddr = { hostname: "127.0.0.1", port: 80, transport: "tcp" },
       name = createName(),
       watch = false,
       ...options
@@ -551,6 +552,7 @@ export class DeployWorker {
     this.#worker.addEventListener("error", (evt) => this.#handleError(evt));
     const init = {
       ...options,
+      localAddr,
       hasFetchHandler: !!fetchHandler,
     };
     this.#worker.postMessage({
@@ -628,6 +630,11 @@ export class DeployWorker {
   fetch(
     input: string | Request | URL,
     requestInit?: RequestInit,
+    remoteAddr: Deno.NetAddr = {
+      hostname: "127.0.0.1",
+      port: 45678,
+      transport: "udp",
+    },
   ): Promise<[Response, RequestResponseInfo]> {
     assert(this.#state !== "loading" && this.#state !== "errored");
     if (this.#state === "closed" || this.#state === "closing") {
@@ -662,7 +669,7 @@ export class DeployWorker {
     logger.debug("fetch()", this.#name, init.url);
     const defaultHeaders: Record<string, string> = {
       host: url.host,
-      "x-forwarded-for": "127.0.0.1",
+      "x-forwarded-for": remoteAddr.hostname,
     };
     if (requestInit && inputRequest) {
       let headers: [string, string][] | undefined;
@@ -725,6 +732,7 @@ export class DeployWorker {
       type: "fetch",
       id,
       init,
+      remoteAddr,
     });
     if (bodyStream) {
       this.#streamBody(id, bodyStream);

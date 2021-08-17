@@ -25,6 +25,9 @@ export interface DeployOptions extends DeployWorkerOptions {
   /** The host to use when sending requests into the worker.  Defaults to
    * `localhost`. */
   host?: string;
+  /** What the local address will appear as in network connections.  Defaults
+   * to `{ hostname: "127.0.0.1", port: 80, transport: "tcp" }` */
+  localAddr?: Deno.NetAddr;
   /** An optional handler for fetch requests coming from the deploy script.
    * This is design to allow outbound fetch requests from the Deploy script to
    * be intercepted.  If the `respondWith()` is not called in the handler, then
@@ -56,6 +59,7 @@ export interface DeployWorkerOptions {
 
 export interface DeployWorkerInit extends DeployWorkerOptions {
   hasFetchHandler: boolean;
+  localAddr: Deno.NetAddr;
 }
 
 export type DectylMessage =
@@ -130,6 +134,7 @@ export interface FetchMessage {
   type: "fetch";
   id: number;
   init: FetchMessageRequestInit;
+  remoteAddr?: Deno.NetAddr;
 }
 
 export interface ImportMessage {
