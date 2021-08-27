@@ -199,4 +199,5 @@ export interface RespondMessage {
   headers: [string, string][];
   status: number;
   statusText: string;
+  url: string;
 }

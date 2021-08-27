@@ -1,7 +1,7 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
 import { check, createWorker, testing } from "../mod.ts";
-import { assertEquals } from "https://deno.land/std@0.104.0/testing/asserts.ts";
+import { assertEquals } from "https://deno.land/std@0.106.0/testing/asserts.ts";
 import {
   contentType,
   lookup,

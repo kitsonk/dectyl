@@ -480,7 +480,7 @@ class DeployWorkerHost {
         break;
       }
       case "respond": {
-        const { id, hasBody, type: _, ...responseInit } = data;
+        const { id, hasBody, type: _, url, ...responseInit } = data;
         let bodyInit: ReadableStream<Uint8Array> | null = null;
         if (hasBody) {
           bodyInit = new ReadableStream({
@@ -490,6 +490,10 @@ class DeployWorkerHost {
           });
         }
         const response = new Response(bodyInit, responseInit);
+        Object.defineProperty(response, "url", {
+          value: url,
+          writable: false,
+        });
         const deferred = this.#pendingFetches.get(id);
         assert(deferred);
         this.#pendingFetches.delete(id);
@@ -573,7 +577,7 @@ class DeployWorkerHost {
       });
       return;
     }
-    const { body, headers, status, statusText } = response;
+    const { body, headers, status, statusText, url } = response;
     this.#postMessage({
       type: "respond",
       id,
@@ -581,6 +585,7 @@ class DeployWorkerHost {
       headers: [...headers],
       status,
       statusText,
+      url,
     });
     const subType = "response";
     if (body) {

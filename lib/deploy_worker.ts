@@ -210,7 +210,7 @@ class RequestEvent implements Deno.RequestEvent {
       });
       return;
     }
-    const { body, headers, status, statusText } = response;
+    const { body, headers, status, statusText, url } = response;
     this.#worker.postMessage({
       type: "respond",
       id,
@@ -218,6 +218,7 @@ class RequestEvent implements Deno.RequestEvent {
       headers: [...headers],
       status,
       statusText,
+      url,
     });
     if (body) {
       const subType = "response";
@@ -386,7 +387,7 @@ export class DeployWorker {
         this.#setup();
         break;
       case "respond": {
-        const { id, hasBody, type: _, ...responseInit } = data;
+        const { id, hasBody, type: _, url, ...responseInit } = data;
         let bodyInit: ReadableStream<Uint8Array> | null = null;
         if (hasBody) {
           bodyInit = new ReadableStream({
@@ -396,6 +397,10 @@ export class DeployWorker {
           });
         }
         const response = new Response(bodyInit, responseInit);
+        Object.defineProperty(response, "url", {
+          value: url,
+          writable: false,
+        });
         const deferred = this.#pendingFetches.get(id);
         assert(deferred);
         this.#pendingFetches.delete(id);
