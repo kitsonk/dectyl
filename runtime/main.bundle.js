@@ -114,8 +114,8 @@ function code(open, close) {
         regexp: new RegExp(`\\x1b\\[${close}m`, "g")
     };
 }
-function run(str, code1) {
-    return `${code1.open}${str.replace(code1.regexp, code1.open)}${code1.close}`;
+function run(str, code) {
+    return `${code.open}${str.replace(code.regexp, code.open)}${code.close}`;
 }
 const codes = {
     bold: code(1, 22),
@@ -276,35 +276,35 @@ function groupEntries(entries, level, value, iterableLimit = 100) {
         }
         const tmp = [];
         const maxLineLength = [];
-        for(let i1 = 0; i1 < columns; i1++){
+        for(let i = 0; i < columns; i++){
             let lineMaxLength = 0;
-            for(let j = i1; j < entries.length; j += columns){
+            for(let j = i; j < entries.length; j += columns){
                 if (dataLen[j] > lineMaxLength) lineMaxLength = dataLen[j];
             }
             lineMaxLength += separatorSpace;
-            maxLineLength[i1] = lineMaxLength;
+            maxLineLength[i] = lineMaxLength;
         }
         let order = "padStart";
         if (value !== undefined && Array.isArray(value)) {
-            for(let i2 = 0; i2 < entries.length; i2++){
-                if (typeof value[i2] !== "number" && typeof value[i2] !== "bigint") {
+            for(let i = 0; i < entries.length; i++){
+                if (typeof value[i] !== "number" && typeof value[i] !== "bigint") {
                     order = "padEnd";
                     break;
                 }
             }
         }
-        for(let i2 = 0; i2 < entriesLength; i2 += columns){
-            const max = Math.min(i2 + columns, entriesLength);
+        for(let i1 = 0; i1 < entriesLength; i1 += columns){
+            const max = Math.min(i1 + columns, entriesLength);
             let str = "";
-            let j = i2;
+            let j = i1;
             for(; j < max - 1; j++){
                 const lengthOfColorCodes = entries[j].length - dataLen[j];
-                const padding = maxLineLength[j - i2] + lengthOfColorCodes;
+                const padding = maxLineLength[j - i1] + lengthOfColorCodes;
                 str += `${entries[j]}, `[order](padding, " ");
             }
             if (order === "padStart") {
                 const lengthOfColorCodes = entries[j].length - dataLen[j];
-                const padding = maxLineLength[j - i2] + lengthOfColorCodes - 2;
+                const padding = maxLineLength[j - i1] + lengthOfColorCodes - 2;
                 str += entries[j].padStart(padding, " ");
             } else {
                 str += entries[j];
@@ -422,7 +422,7 @@ function inspectArray(value, level, inspectOptions) {
             "[",
             "]"
         ],
-        entryHandler: (entry, level1, inspectOptions1, next)=>{
+        entryHandler: (entry, level, inspectOptions, next)=>{
             const [index, val] = entry;
             let i = index;
             if (!hasOwnProperty(value, i)) {
@@ -435,7 +435,7 @@ function inspectArray(value, level, inspectOptions) {
                 const ending = emptyItems > 1 ? "s" : "";
                 return dim(`<${emptyItems} empty item${ending}>`);
             } else {
-                return inspectValueWithQuotes(val, level1, inspectOptions1);
+                return inspectValueWithQuotes(val, level, inspectOptions);
             }
         },
         group: inspectOptions.compact,
@@ -452,9 +452,9 @@ function inspectTypedArray(typedArrayName, value, level, inspectOptions) {
             "[",
             "]"
         ],
-        entryHandler: (entry, level1, inspectOptions1)=>{
+        entryHandler: (entry, level, inspectOptions)=>{
             const val = entry[1];
-            return inspectValueWithQuotes(val, level1 + 1, inspectOptions1);
+            return inspectValueWithQuotes(val, level + 1, inspectOptions);
         },
         group: inspectOptions.compact,
         sort: false
@@ -469,9 +469,9 @@ function inspectSet(value, level, inspectOptions) {
             "{",
             "}"
         ],
-        entryHandler: (entry, level1, inspectOptions1)=>{
+        entryHandler: (entry, level, inspectOptions)=>{
             const val = entry[1];
-            return inspectValueWithQuotes(val, level1 + 1, inspectOptions1);
+            return inspectValueWithQuotes(val, level + 1, inspectOptions);
         },
         group: false,
         sort: inspectOptions.sorted
@@ -486,9 +486,9 @@ function inspectMap(value, level, inspectOptions) {
             "{",
             "}"
         ],
-        entryHandler: (entry, level1, inspectOptions1)=>{
+        entryHandler: (entry, level, inspectOptions)=>{
             const [key, val] = entry;
-            return `${inspectValueWithQuotes(key, level1 + 1, inspectOptions1)} => ${inspectValueWithQuotes(val, level1 + 1, inspectOptions1)}`;
+            return `${inspectValueWithQuotes(key, level + 1, inspectOptions)} => ${inspectValueWithQuotes(val, level + 1, inspectOptions)}`;
         },
         group: false,
         sort: inspectOptions.sorted
@@ -1431,9 +1431,9 @@ function parseCss(cssString) {
             css.textDecorationColor = null;
             css.textDecorationLine = [];
             for (const arg of value.split(/\s+/g)){
-                const maybeColor1 = parseCssColor(arg);
-                if (maybeColor1 != null) {
-                    css.textDecorationColor = maybeColor1;
+                const maybeColor = parseCssColor(arg);
+                if (maybeColor != null) {
+                    css.textDecorationColor = maybeColor;
                 } else if ([
                     "line-through",
                     "overline",
@@ -1775,11 +1775,11 @@ const INIT_PROPS = [
     "referrerPolicy", 
 ];
 var LogLevel;
-(function(LogLevel1) {
-    LogLevel1[LogLevel1["Debug"] = 0] = "Debug";
-    LogLevel1[LogLevel1["Info"] = 1] = "Info";
-    LogLevel1[LogLevel1["Warn"] = 2] = "Warn";
-    LogLevel1[LogLevel1["Error"] = 3] = "Error";
+(function(LogLevel) {
+    LogLevel[LogLevel["Debug"] = 0] = "Debug";
+    LogLevel[LogLevel["Info"] = 1] = "Info";
+    LogLevel[LogLevel["Warn"] = 2] = "Warn";
+    LogLevel[LogLevel["Error"] = 3] = "Error";
 })(LogLevel || (LogLevel = {
 }));
 class FetchEvent extends Event {
@@ -1839,9 +1839,9 @@ class HttpConn {
         if (this.#closed || !this.#requestEvent) {
             return Promise.resolve(null);
         }
-        const requestEvent1 = this.#requestEvent;
+        const requestEvent = this.#requestEvent;
         this.#requestEvent = undefined;
-        return requestEvent1;
+        return requestEvent;
     }
     close() {
         this.#closed = true;
@@ -1850,17 +1850,17 @@ class HttpConn {
         if (this.#closed || !this.#requestEvent) {
             return;
         }
-        const requestEvent1 = this.#requestEvent;
+        const requestEvent = this.#requestEvent;
         this.#requestEvent = undefined;
         this.#closed = true;
-        yield requestEvent1;
+        yield requestEvent;
     }
 }
-function createConn(input, requestInit, respondWith3, localAddr, remoteAddr) {
-    const request2 = new Request(input, requestInit);
-    const requestEvent1 = new RequestEvent(request2, respondWith3);
+function createConn(input, requestInit, respondWith, localAddr, remoteAddr) {
+    const request = new Request(input, requestInit);
+    const requestEvent = new RequestEvent(request, respondWith);
     const conn = new Conn(localAddr, remoteAddr);
-    requestEventPromises.set(conn, Promise.resolve(requestEvent1));
+    requestEventPromises.set(conn, Promise.resolve(requestEvent));
     return conn;
 }
 class Conn {
@@ -2100,12 +2100,12 @@ class DeployWorkerHost {
                 }
             case "init":
                 {
-                    const { env , localAddr: localAddr1 , hasFetchHandler =false  } = data.init;
+                    const { env , localAddr , hasFetchHandler =false  } = data.init;
                     if (env) {
                         this.#denoNs.setEnv(env);
                     }
                     this.#hasFetchHandler = hasFetchHandler;
-                    this.#localAddr = localAddr1;
+                    this.#localAddr = localAddr;
                     this.#postMessage({
                         type: "ready"
                     });
@@ -2119,8 +2119,8 @@ class DeployWorkerHost {
                 break;
             case "fetch":
                 {
-                    const { id , init , remoteAddr: remoteAddr1  } = data;
-                    assert(remoteAddr1);
+                    const { id , init , remoteAddr  } = data;
+                    assert(remoteAddr);
                     const [input, requestInit] = this.#parseInit(id, init);
                     if (globalListener) {
                         this.#requestEventController.enqueue([
@@ -2129,7 +2129,7 @@ class DeployWorkerHost {
                             (response)=>this.#postResponse(id, response)
                             ,
                             this.#localAddr,
-                            remoteAddr1, 
+                            remoteAddr, 
                         ]);
                     } else {
                         this.#target.dispatchEvent(new FetchEvent(new Request(input, requestInit), (response)=>this.#postResponse(id, response)

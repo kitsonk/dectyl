@@ -399,7 +399,6 @@ declare global {
      *   console.log(value, key, parent);
      * });
      * ```
-     *
      */
     forEach(
       callbackfn: (value: string, key: string, parent: this) => void,
@@ -1418,7 +1417,7 @@ declare global {
       /**
        * Given a `Module` and string, returns a copy of the contents of all custom sections in the
        * module with the given string name.
-       * */
+       */
       static customSections(
         moduleObject: Module,
         sectionName: string,

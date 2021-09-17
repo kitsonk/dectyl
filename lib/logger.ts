@@ -1,6 +1,6 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
-import * as colors from "https://deno.land/std@0.106.0/fmt/colors.ts";
+import * as colors from "https://deno.land/std@0.107.0/fmt/colors.ts";
 
 export enum LogLevel {
   Debug = 0,
