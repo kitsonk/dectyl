@@ -1,7 +1,7 @@
 import {
   contentType,
   lookup,
-} from "https://deno.land/x/media_types@v2.9.0/mod.ts";
+} from "https://deno.land/x/media_types@v2.10.2/mod.ts";
 
 import type { RequestEvent } from "../types.d.ts";
 

@@ -5,7 +5,7 @@ import { assertEquals } from "https://deno.land/std@0.107.0/testing/asserts.ts";
 import {
   contentType,
   lookup,
-} from "https://deno.land/x/media_types@v2.9.0/mod.ts";
+} from "https://deno.land/x/media_types@v2.10.2/mod.ts";
 
 Deno.test({
   name: "root page static_assets",
