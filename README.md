@@ -98,7 +98,7 @@ addEventListener("fetch", (event) => {
 **hello_world_test.ts**
 
 ```ts
-import { createWorker } from "https://deno.land/dectyl/mod.ts";
+import { createWorker } from "https://deno.land/x/dectyl/mod.ts";
 import { assertEquals } from "https://deno.land/std/testing/asserts.ts";
 
 Deno.test({
